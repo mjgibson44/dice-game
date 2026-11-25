@@ -227,3 +227,23 @@ describe("playing", () => {
     expect(room.game?.turn).toMatchObject({ turnPoints: 1000, diceToRoll: 2 });
   });
 });
+
+describe("saving and restoring", () => {
+  it("a restored room carries on exactly where it was", () => {
+    const { room, script } = setup();
+    const [a, b] = seat(room, "Ann", "Ben");
+    ok(room.start(a!.id));
+    script(1, 1, 1, 2, 3);
+    ok(room.roll(a!.id, []));
+    ok(room.select(a!.id, [0, 1, 2]));
+    const copy = Room.restore(JSON.parse(JSON.stringify(room.snapshot())), {
+      random: () => 0,
+      now: () => 1_000,
+      newId: () => "x",
+    });
+    expect(copy.view()).toEqual(room.view());
+    expect(copy.resume(b!.id, b!.token).ok).toBe(true);
+    ok(copy.bank(a!.id, [0, 1, 2]));
+    expect(copy.game?.players[0]?.score).toBe(1000);
+  });
+});

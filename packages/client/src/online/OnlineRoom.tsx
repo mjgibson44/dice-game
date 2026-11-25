@@ -4,10 +4,10 @@
  */
 
 import { currentPlayer, MAX_NAME_LENGTH, MIN_PLAYERS, type RoomView } from "@dice-game/shared";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { GameOver } from "../GameOver.tsx";
 import { GameView, HistoryPanel, MenuSheet, RulesPanel } from "../GameView.tsx";
-import { useSavedName } from "../Home.tsx";
+import { AUTO_JOIN_KEY, useSavedName } from "../Home.tsx";
 import { connection, loadSession, useConnection } from "./connection.ts";
 
 interface OnlineRoomProps {
@@ -17,12 +17,22 @@ interface OnlineRoomProps {
 
 export function OnlineRoom({ code, onHome }: OnlineRoomProps) {
   const state = useConnection();
-  const [hasSeat] = useState(() => loadSession()?.code === code);
+  // Arrived from Create or Join on the home screen: take a seat straight away without asking for a name.
+  const [autoJoinName] = useState(() => {
+    try {
+      const pending = JSON.parse(sessionStorage.getItem(AUTO_JOIN_KEY) ?? "null") as { code: string; name: string } | null;
+      return pending?.code === code && pending.name && !loadSession(code) ? pending.name : null;
+    } catch {
+      return null;
+    }
+  });
+  const autoJoin = autoJoinName !== null;
 
-  // Rejoin our seat when we arrive with one saved for this room.
   useEffect(() => {
-    const session = loadSession();
-    if (session?.code === code) connection.resume(session);
+    connection.open(code);
+    if (autoJoinName) connection.send({ type: "join", name: autoJoinName });
+    sessionStorage.removeItem(AUTO_JOIN_KEY);
+    return () => connection.close();
   }, [code]);
 
   function leave() {
@@ -41,10 +51,11 @@ export function OnlineRoom({ code, onHome }: OnlineRoomProps) {
     );
   }
   if (!room || !seated) {
-    if (!hasSeat && !state.me) return <JoinForm code={code} onHome={onHome} error={state.error} />;
+    const waiting = (state.me !== null || autoJoin) && !state.error;
+    if (!waiting) return <JoinForm code={code} onHome={onHome} error={state.error} />;
     return (
-      <Notice title="Connecting…" onHome={onHome}>
-        Finding game {code}.
+      <Notice title={state.me ? "Connecting…" : "Joining…"} onHome={onHome}>
+        Game {code}
       </Notice>
     );
   }
@@ -96,7 +107,7 @@ function JoinForm({ code, onHome, error }: { code: string; onHome: () => void; e
     if (!name.trim()) return;
     connection.clearError();
     setSent(true);
-    connection.send({ type: "join", code, name });
+    connection.send({ type: "join", name });
   }
 
   return (
@@ -234,6 +245,8 @@ function OnlineGame({ room, me, receivedAt, error, onLeave }: OnlineGameProps) {
   const game = room.game!;
   // Tagged with the roll it belongs to, so a new roll clears it straight away.
   const [picked, setPicked] = useState<{ roll: number; indices: number[] }>({ roll: -1, indices: [] });
+  // Mirrors `picked` synchronously, so quick taps between renders build on each other.
+  const pickedRef = useRef(picked);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
 
@@ -262,8 +275,10 @@ function OnlineGame({ room, me, receivedAt, error, onLeave }: OnlineGameProps) {
         error={error}
         label={`Game ${room.code} · Turn ${game.turnNumber}`}
         onToggle={(i) => {
-          const next = mySelection.includes(i) ? mySelection.filter((x) => x !== i) : [...mySelection, i];
-          setPicked({ roll: room.rollCount, indices: next });
+          const prev = pickedRef.current.roll === room.rollCount ? pickedRef.current.indices : [];
+          const next = prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i];
+          pickedRef.current = { roll: room.rollCount, indices: next };
+          setPicked(pickedRef.current);
           connection.send({ type: "select", indices: next });
         }}
         onRoll={() => connection.send({ type: "roll", keep: keepNow })}

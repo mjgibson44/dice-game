@@ -1,6 +1,6 @@
 import { CODE_LENGTH, MAX_NAME_LENGTH, MAX_PLAYERS, MIN_PLAYERS, normalizeCode } from "@dice-game/shared";
-import { useEffect, useRef, useState } from "react";
-import { connection, loadSession, useConnection } from "./online/connection.ts";
+import { useState } from "react";
+import { createRoom, fetchRoomInfo, loadSession } from "./online/connection.ts";
 
 const NAME_KEY = "dice-game:name";
 
@@ -15,55 +15,63 @@ export function useSavedName(): [string, (name: string) => void] {
   ];
 }
 
+/** Set just before going to a room, so the room page joins straight away instead of asking for a name. */
+export const AUTO_JOIN_KEY = "dice-game:auto-join";
+
 export function Home({ onNavigate }: { onNavigate: (path: string) => void }) {
   const [name, setName] = useSavedName();
   const [players, setPlayers] = useState(4);
   const [code, setCode] = useState("");
   const [pending, setPending] = useState<"create" | "join" | null>(null);
-  const [localError, setLocalError] = useState<string | null>(null);
-  const { room, error } = useConnection();
+  const [error, setError] = useState<string | null>(null);
   const session = loadSession();
-  const startedFrom = useRef<string | null>(null);
-
-  // Once the server confirms we're in a room, go to it.
-  useEffect(() => {
-    if (pending && room && room.code !== startedFrom.current) onNavigate(`/room/${room.code}`);
-  }, [pending, room]);
-
-  useEffect(() => {
-    if (pending && error) setPending(null);
-  }, [error]);
 
   function needName(): boolean {
     if (name.trim()) return false;
-    setLocalError("Enter your name first.");
+    setError("Enter your name first.");
     return true;
   }
 
-  function create() {
-    if (needName()) return;
-    setLocalError(null);
-    connection.clearError();
-    startedFrom.current = room?.code ?? null;
-    setPending("create");
-    connection.send({ type: "create", name, maxPlayers: players });
+  function enter(roomCode: string) {
+    sessionStorage.setItem(AUTO_JOIN_KEY, JSON.stringify({ code: roomCode, name: name.trim() }));
+    onNavigate(`/room/${roomCode}`);
   }
 
-  function join() {
+  async function create() {
+    if (needName()) return;
+    setError(null);
+    setPending("create");
+    try {
+      enter(await createRoom(players));
+    } catch (e) {
+      setError((e as Error).message);
+      setPending(null);
+    }
+  }
+
+  async function join() {
     if (needName()) return;
     const clean = normalizeCode(code);
     if (clean.length !== CODE_LENGTH) {
-      setLocalError(`Game codes are ${CODE_LENGTH} characters.`);
+      setError(`Game codes are ${CODE_LENGTH} characters.`);
       return;
     }
-    setLocalError(null);
-    connection.clearError();
-    startedFrom.current = room?.code ?? null;
+    setError(null);
     setPending("join");
-    connection.send({ type: "join", code: clean, name });
+    try {
+      const info = await fetchRoomInfo(clean);
+      if (loadSession(clean)) return onNavigate(`/room/${clean}`);
+      if (!info) setError("There's no game with that code.");
+      else if (info.status !== "lobby") setError("That game has already started.");
+      else if (info.players >= info.maxPlayers) setError("That game is full.");
+      else return enter(clean);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setPending(null);
   }
 
-  const shownError = localError ?? (pending === null ? error : null);
+  const shownError = error;
 
   return (
     <main className="app home">

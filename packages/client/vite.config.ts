@@ -6,7 +6,10 @@ export default defineConfig({
   server: {
     host: true,
     port: 5173,
-    // In development the game server runs separately; send WebSocket traffic to it.
-    proxy: { "/ws": { target: "ws://localhost:8787", ws: true } },
+    // In development the game server runs separately (wrangler dev on :8787); send API and WebSocket traffic to it.
+    proxy: {
+      "/api": "http://localhost:8787",
+      "/ws": { target: "ws://localhost:8787", ws: true },
+    },
   },
 });

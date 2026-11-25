@@ -1,7 +1,13 @@
 /**
- * Messages between the browser and the game server, sent as JSON over one
- * WebSocket. The server owns the game: it rolls the dice, checks every move,
- * and sends the whole room to everyone after each change.
+ * How the browser and the game server talk.
+ *
+ * HTTP:
+ *   POST /api/rooms {maxPlayers}  -> 201 {code}          create an empty room
+ *   GET  /api/rooms/CODE          -> 200 RoomInfo | 404   check a code before joining
+ *
+ * WebSocket /ws/CODE: one socket per room, messages as JSON. The server owns
+ * the game: it rolls the dice, checks every move, and sends the whole room to
+ * everyone in it after each change.
  */
 
 import type { GameState } from "./game.ts";
@@ -9,6 +15,8 @@ import type { GameState } from "./game.ts";
 export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 5;
 export const MAX_NAME_LENGTH = 20;
+/** Largest WebSocket message the server accepts. */
+export const MAX_MESSAGE_BYTES = 4096;
 
 /** Room codes avoid look-alike characters (0/O, 1/I/L). */
 export const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
@@ -44,10 +52,17 @@ export interface RoomView {
   pauseRemainingMs: number | null;
 }
 
+/** What GET /api/rooms/CODE says about a room before you join it. */
+export interface RoomInfo {
+  code: string;
+  status: RoomStatus;
+  players: number;
+  maxPlayers: number;
+}
+
 export type ClientMessage =
-  | { type: "create"; name: string; maxPlayers: number }
-  | { type: "join"; code: string; name: string }
-  | { type: "resume"; code: string; playerId: string; token: string }
+  | { type: "join"; name: string }
+  | { type: "resume"; playerId: string; token: string }
   | { type: "leave" }
   | { type: "start" }
   | { type: "select"; indices: number[] }

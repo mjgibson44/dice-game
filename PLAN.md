@@ -68,24 +68,26 @@ Several combos can be set aside from the same roll (e.g. three 4s + a 1 + a 5 = 
   - `game.ts`: players, turn order, live dice, winning. Serializable, so the server can
     hold it and send it to every player.
   - `protocol.ts`: the messages between browser and server.
-- `packages/server`: Node + WebSockets (`ws`). The server holds every game and rolls the
-  dice (crypto-random), so nobody can cheat from their browser.
-  - `room.ts`: seats, lobby, host, turns, the 5-second turn-over pause. No sockets, unit-tested.
-  - `index.ts`: WebSocket at `/ws`, room codes, reconnects, cleanup of empty rooms after
-    30 minutes. In production it also serves the built client, so one service runs everything.
+- `packages/server`: Cloudflare Worker + Durable Objects (free plan). Live at
+  **https://dice.mjgibson.com**.
+  - `worker.ts`: serves the app, `POST /api/rooms` (create), `GET /api/rooms/CODE` (check),
+    and hands `/ws/CODE` to that room's Durable Object. One Durable Object per game code
+    holds the game, rolls the dice (crypto-random), and saves the room after every change,
+    so games survive the object sleeping or restarting. The 5-second turn-over pause and
+    the cleanup of rooms empty for 30 minutes run on Durable Object alarms.
+  - `room.ts`: seats, lobby, host, turns. No platform code, unit-tested.
 - `packages/client`: Vite + React, mobile-first.
   - Home: create a game (pick 2–5 players), join with a code, or practice.
   - `/room/CODE`: join form (for invite links), lobby with share button, live game, end screen.
   - Everyone sees every roll, every die the current player taps, banks and crap-outs live.
   - Your seat is saved on the device, so reloading or reopening the link drops you back in.
   - Practice mode: pass-and-play on one device, with testing tools.
-- Hosting: one Railway service for the app and server (about $5/month), or Cloudflare
-  Durable Objects for $0 with more setup.
+- Hosting: Cloudflare Workers free plan (100k requests/day; each WebSocket message counts
+  toward Durable Object usage, plenty for games among friends).
 
 ### Known gaps in online play
 - If the current player leaves or drops for good, the game waits for them. Needs a way
   to skip an away player (e.g. auto-skip after a minute, or host can skip).
-- Rooms live in server memory: a server restart ends games in progress.
 - Testing several players on one computer needs a different address per tab
   (localhost, 127.0.0.1, your network IP), since a seat is saved per site.
 
@@ -102,15 +104,15 @@ cover a game this size. iOS needs a tap before the mic turns on, so there will b
 3. ~~Server: rooms, lobby, turns, reconnects~~ ✅
 4. ~~Online client: create/join, lobby, live game view~~ ✅
 5. ~~Game-over screen~~ ✅
-6. Deploy and play across real phones
+6. ~~Deploy (Cloudflare, dice.mjgibson.com)~~ ✅ Next: play a real game across phones
 7. Voice chat
 8. Polish: animations, sound, haptics; skipping away players
 
 ## Development
 ```bash
 npm install
-npm run dev        # game server on :8787 + app on http://localhost:5173
+npm run dev        # Cloudflare's local server (wrangler dev) on :8787 + app on http://localhost:5173
 npm test           # rules + room tests
 npm run typecheck
-npm run build && npm start   # production: one server on $PORT serving app + /ws
+npm run deploy     # build the app and deploy to Cloudflare (needs `npx wrangler login` once)
 ```

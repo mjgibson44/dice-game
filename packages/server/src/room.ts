@@ -43,6 +43,19 @@ export interface RoomDeps {
   newId: () => string;
 }
 
+/** Everything needed to rebuild a room after the server sleeps or restarts. */
+export interface RoomSnapshot {
+  code: string;
+  hostId: string;
+  maxPlayers: number;
+  status: RoomStatus;
+  members: Member[];
+  game: GameState | null;
+  selection: number[];
+  rollCount: number;
+  pauseEndsAt: number | null;
+}
+
 export function cleanName(raw: string): string | null {
   const name = raw.replace(/\s+/g, " ").trim().slice(0, MAX_NAME_LENGTH);
   return name.length > 0 ? name : null;
@@ -66,6 +79,32 @@ export class Room {
     this.deps = deps;
     this.code = code;
     this.maxPlayers = Math.min(MAX_PLAYERS, Math.max(MIN_PLAYERS, Math.round(maxPlayers)));
+  }
+
+  snapshot(): RoomSnapshot {
+    return {
+      code: this.code,
+      hostId: this.hostId,
+      maxPlayers: this.maxPlayers,
+      status: this.status,
+      members: this.members,
+      game: this.game,
+      selection: this.selection,
+      rollCount: this.rollCount,
+      pauseEndsAt: this.pauseEndsAt,
+    };
+  }
+
+  static restore(snapshot: RoomSnapshot, deps: RoomDeps): Room {
+    const room = new Room(snapshot.code, snapshot.maxPlayers, deps);
+    room.hostId = snapshot.hostId;
+    room.status = snapshot.status;
+    room.members = snapshot.members;
+    room.game = snapshot.game;
+    room.selection = snapshot.selection;
+    room.rollCount = snapshot.rollCount;
+    room.pauseEndsAt = snapshot.pauseEndsAt;
+    return room;
   }
 
   /** Take a seat. Only possible in the lobby while there's room. */
