@@ -19,7 +19,7 @@ import {
 } from "@dice-game/shared";
 import { useEffect, useState } from "react";
 import { GameOver } from "./GameOver.tsx";
-import { fmt, GameView, HistoryPanel, MenuSheet, RulesPanel, SoundToggle } from "./GameView.tsx";
+import { fmt, GameView, HistoryPanel, MenuSheet, RulesPanel, SoundSettings } from "./GameView.tsx";
 
 function parseDigits(text: string): Face[] | null {
   const digits = text.match(/[1-6]/g);
@@ -228,7 +228,7 @@ function PracticeTable({ game, setGame, onQuit }: PracticeTableProps) {
               Close
             </button>
           </div>
-          <SoundToggle />
+          <SoundSettings />
           <details className="panel">
             <summary>Testing tools</summary>
             <label className="field">

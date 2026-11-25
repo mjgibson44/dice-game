@@ -79,8 +79,8 @@ export interface GameState {
   deadDice: DeadDiceReason | null;
   turnNumber: number;
   winnerId: string | null;
-  /** Why the game ended: someone hit the target, or everyone else was removed. */
-  endReason?: "target" | "last-player";
+  /** Why the game ended: someone hit the target, everyone else was removed, or the host ended it. */
+  endReason?: "target" | "last-player" | "ended";
   history: TurnRecord[];
 }
 
@@ -274,4 +274,10 @@ export function removePlayer(state: GameState, playerId: string): GameResult {
   const next = { ...state, players, live, current: index < state.current ? state.current - 1 : state.current };
   // The current player was choosing whether to use the removed player's live dice: that offer is gone.
   return { ok: true, state: next.phase === "deciding" && !live ? beginTurn(next) : next };
+}
+
+/** End the game early (the host stopped it). Nobody wins; final scores stand. */
+export function endGame(state: GameState): GameResult {
+  if (state.phase === "finished") return { ok: false, error: "The game is already over." };
+  return { ok: true, state: { ...state, phase: "finished", turn: null, live: null, winnerId: null, endReason: "ended" } };
 }

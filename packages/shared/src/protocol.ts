@@ -4,6 +4,7 @@
  * HTTP:
  *   POST /api/rooms {maxPlayers}  -> 201 {code}          create an empty room
  *   GET  /api/rooms/CODE          -> 200 RoomInfo | 404   check a code before joining
+ *   GET  /api/ice                 -> {iceServers}          STUN/TURN servers for voice chat
  *
  * WebSocket /ws/CODE: one socket per room, messages as JSON. The server owns
  * the game: it rolls the dice, checks every move, and sends the whole room to
@@ -17,8 +18,8 @@ export const MAX_PLAYERS = 5;
 export const MAX_NAME_LENGTH = 20;
 /** How long someone can be away before others can skip them (or the host role moves on). */
 export const AWAY_LIMIT_MS = 60_000;
-/** Largest WebSocket message the server accepts. */
-export const MAX_MESSAGE_BYTES = 4096;
+/** Largest WebSocket message the server accepts (voice connection offers run a few KB). */
+export const MAX_MESSAGE_BYTES = 16_384;
 
 /** Room codes avoid look-alike characters (0/O, 1/I/L). */
 export const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
@@ -35,7 +36,16 @@ export interface MemberView {
   connected: boolean;
   /** How long they've been disconnected, or null while connected. */
   awayMs: number | null;
+  /** Whether they're in voice chat, and muted. */
+  voice: VoiceStatus;
 }
+
+export type VoiceStatus = "off" | "on" | "muted";
+
+/** WebRTC set-up messages, passed between two players through the server. */
+export type VoiceSignal =
+  | { kind: "offer" | "answer"; sdp: string }
+  | { kind: "candidate"; candidate: { candidate: string; sdpMid?: string | null; sdpMLineIndex?: number | null } };
 
 /** The current player has been away too long: others can skip them or vote them out. */
 export interface StuckView {
@@ -91,7 +101,17 @@ export type ClientMessage =
   | { type: "skipTurn" }
   /** Vote (or take back a vote) to remove a player who's been away too long. */
   | { type: "voteRemove"; vote: boolean }
-  | { type: "playAgain" };
+  /** Joined or left voice chat, or (un)muted. */
+  | { type: "voiceState"; status: VoiceStatus }
+  /** Voice set-up for one other player; the server passes it straight on. */
+  | { type: "voice"; to: string; signal: VoiceSignal }
+  | { type: "playAgain" }
+  /** Host only: start a new game with the same players right now. */
+  | { type: "restart" }
+  /** Host only: back to the lobby so people can join or leave. */
+  | { type: "backToLobby" }
+  /** Host only: stop the game and show final scores. */
+  | { type: "endGame" };
 
 export type ServerMessage =
   /** You're in: keep these to rejoin your seat after a disconnect. */
@@ -99,4 +119,5 @@ export type ServerMessage =
   | { type: "room"; room: RoomView }
   /** `fatal` means the room or seat is gone, so the client should forget it. */
   | { type: "error"; message: string; fatal?: boolean }
-  | { type: "left" };
+  | { type: "left" }
+  | { type: "voice"; from: string; signal: VoiceSignal };

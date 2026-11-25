@@ -5,10 +5,13 @@
 
 import { currentPlayer, MAX_NAME_LENGTH, MIN_PLAYERS, type RoomView } from "@dice-game/shared";
 import { useEffect, useRef, useState } from "react";
+import { ConfirmDialog } from "../ConfirmDialog.tsx";
 import { GameOver } from "../GameOver.tsx";
-import { GameView, HistoryPanel, MenuSheet, RulesPanel, SoundToggle } from "../GameView.tsx";
+import { GameView, HistoryPanel, MenuSheet, RulesPanel, SoundSettings } from "../GameView.tsx";
 import { AUTO_JOIN_KEY, useSavedName } from "../Home.tsx";
 import { connection, loadSession, useConnection } from "./connection.ts";
+import { voice, useVoice } from "./voice.ts";
+import { MicButton, VoiceBadge, VoiceSettings } from "./VoiceUI.tsx";
 
 interface OnlineRoomProps {
   code: string;
@@ -32,10 +35,19 @@ export function OnlineRoom({ code, onHome }: OnlineRoomProps) {
     connection.open(code);
     if (autoJoinName) connection.send({ type: "join", name: autoJoinName });
     sessionStorage.removeItem(AUTO_JOIN_KEY);
-    return () => connection.close();
+    return () => {
+      voice.leave();
+      connection.close();
+    };
   }, [code]);
 
+  // Keep voice connections in step with who's in the room and in voice.
+  useEffect(() => {
+    if (state.room?.code === code && state.me) voice.sync(state.room, state.me);
+  }, [state.room, state.me, code]);
+
   function leave() {
+    voice.leave();
     connection.leave();
     onHome();
   }
@@ -75,6 +87,13 @@ export function OnlineRoom({ code, onHome }: OnlineRoomProps) {
           onPlayAgain={room.hostId === me ? () => connection.send({ type: "playAgain" }) : null}
           waitingNote={`Waiting for ${room.members.find((m) => m.id === room.hostId)?.name ?? "the host"} to start a rematch…`}
           onGoHome={leave}
+          footer={
+            room.hostId === me ? (
+              <button type="button" className="link center" onClick={() => connection.send({ type: "backToLobby" })}>
+                Back to the lobby (let people join or leave)
+              </button>
+            ) : null
+          }
         />
       )}
     </>
@@ -143,10 +162,11 @@ function JoinForm({ code, onHome, error }: { code: string; onHome: () => void; e
 
 function Lobby({ room, me, onLeave, error }: { room: RoomView; me: string; onLeave: () => void; error: string | null }) {
   const [copied, setCopied] = useState(false);
+  const { talking } = useVoice();
   const isHost = room.hostId === me;
   const host = room.members.find((m) => m.id === room.hostId);
   const link = `${location.origin}/room/${room.code}`;
-  const openSeats = Math.max(0, room.maxPlayers - room.members.length);
+  const full = room.members.length >= room.maxPlayers;
 
   async function share() {
     const shareData = { title: "Dice Game", text: `Join my dice game! Code ${room.code}`, url: link };
@@ -169,6 +189,7 @@ function Lobby({ room, me, onLeave, error }: { room: RoomView; me: string; onLea
         <button type="button" className="link" onClick={onLeave}>
           ← Leave
         </button>
+        <MicButton me={me} />
       </header>
 
       <section className="lobby-code">
@@ -182,9 +203,7 @@ function Lobby({ room, me, onLeave, error }: { room: RoomView; me: string; onLea
       <section className="panel open">
         <div className="members-head">
           <h2>Players</h2>
-          <span className="muted">
-            {room.members.length} of {room.maxPlayers}
-          </span>
+          <span className="muted">{full ? "Full" : `Up to ${room.maxPlayers}`}</span>
         </div>
         <ol className="members">
           {room.members.map((m) => (
@@ -193,16 +212,17 @@ function Lobby({ room, me, onLeave, error }: { room: RoomView; me: string; onLea
               <span className="name">
                 {m.name}
                 {m.id === me && <span className="muted"> (you)</span>}
+                <VoiceBadge status={m.voice} talking={talking.has(m.id)} />
               </span>
               {m.id === room.hostId && <span className="tag host">host</span>}
             </li>
           ))}
-          {Array.from({ length: openSeats }, (_, i) => (
-            <li key={`open${i}`} className="open-seat">
+          {!full && (
+            <li className="open-seat">
               <span className="dot" />
-              <span className="muted">Waiting for a player…</span>
+              <span className="muted">Waiting for players…</span>
             </li>
-          ))}
+          )}
         </ol>
       </section>
 
@@ -220,9 +240,7 @@ function Lobby({ room, me, onLeave, error }: { room: RoomView; me: string; onLea
             <span className="sub">
               {room.members.length < MIN_PLAYERS
                 ? `Need at least ${MIN_PLAYERS} players`
-                : openSeats > 0
-                  ? `${openSeats} open ${openSeats === 1 ? "seat" : "seats"} will be dropped`
-                  : "Everyone's here"}
+                : `${room.members.length} players · start when everyone's in`}
             </span>
           </button>
         ) : (
@@ -248,7 +266,15 @@ function OnlineGame({ room, me, receivedAt, error, onLeave }: OnlineGameProps) {
   // Mirrors `picked` synchronously, so quick taps between renders build on each other.
   const pickedRef = useRef(picked);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [confirmLeave, setConfirmLeave] = useState(false);
+  const [confirm, setConfirm] = useState<"leave" | "restart" | "lobby" | "end" | null>(null);
+  const { talking } = useVoice();
+  const isHost = room.hostId === me;
+
+  function hostAction(type: "restart" | "backToLobby" | "endGame") {
+    connection.send({ type });
+    setConfirm(null);
+    setMenuOpen(false);
+  }
 
   const current = currentPlayer(game);
   const myTurn = current.id === me && (game.phase === "playing" || game.phase === "deciding");
@@ -274,6 +300,11 @@ function OnlineGame({ room, me, receivedAt, error, onLeave }: OnlineGameProps) {
         awayIds={awayIds}
         error={error}
         label={`Game ${room.code} · Turn ${game.turnNumber}`}
+        nameBadge={(id) => {
+          const member = room.members.find((m) => m.id === id);
+          return member ? <VoiceBadge status={member.voice} talking={talking.has(id)} /> : null;
+        }}
+        topbarExtra={<MicButton me={me} compact />}
         onToggle={(i) => {
           const prev = pickedRef.current.roll === room.rollCount ? pickedRef.current.indices : [];
           const next = prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i];
@@ -288,33 +319,65 @@ function OnlineGame({ room, me, receivedAt, error, onLeave }: OnlineGameProps) {
         onOpenMenu={() => setMenuOpen(true)}
       />
       {menuOpen && (
-        <MenuSheet
-          onClose={() => {
-            setMenuOpen(false);
-            setConfirmLeave(false);
-          }}
-        >
+        <MenuSheet onClose={() => setMenuOpen(false)}>
           <div className="sheet-head">
-            {confirmLeave ? (
-              <button type="button" className="link bad" onClick={onLeave}>
-                Really leave? Your seat stays empty.
-              </button>
-            ) : (
-              <button type="button" className="link" onClick={() => setConfirmLeave(true)}>
-                Leave game
-              </button>
-            )}
+            <span className="eyebrow">Game {room.code}</span>
             <button type="button" className="chip" onClick={() => setMenuOpen(false)}>
               Close
             </button>
           </div>
-          <SoundToggle />
-          <div className="panel invite-line">
-            Game code <strong>{room.code}</strong>
-          </div>
+          <SoundSettings />
+          <VoiceSettings me={me} />
+          {isHost && (
+            <div className="panel host-actions">
+              <span className="eyebrow">Host</span>
+              <button type="button" className="menu-action" onClick={() => setConfirm("restart")}>
+                Restart game
+              </button>
+              <button type="button" className="menu-action" onClick={() => setConfirm("lobby")}>
+                Back to lobby
+              </button>
+              <button type="button" className="menu-action bad" onClick={() => setConfirm("end")}>
+                End game
+              </button>
+            </div>
+          )}
           <RulesPanel game={game} />
           <HistoryPanel game={game} />
+          <button type="button" className="menu-action bad leave" onClick={() => setConfirm("leave")}>
+            Leave game
+          </button>
         </MenuSheet>
+      )}
+      {confirm === "leave" && (
+        <ConfirmDialog title="Leave the game?" confirmLabel="Leave" danger onConfirm={onLeave} onCancel={() => setConfirm(null)}>
+          Your seat stays but you'll show as away. Others can skip your turns or vote you out.
+        </ConfirmDialog>
+      )}
+      {confirm === "restart" && (
+        <ConfirmDialog
+          title="Restart the game?"
+          confirmLabel="Restart"
+          onConfirm={() => hostAction("restart")}
+          onCancel={() => setConfirm(null)}
+        >
+          Everyone's score goes back to 0 and a new game starts with the same players.
+        </ConfirmDialog>
+      )}
+      {confirm === "lobby" && (
+        <ConfirmDialog
+          title="Back to the lobby?"
+          confirmLabel="Back to lobby"
+          onConfirm={() => hostAction("backToLobby")}
+          onCancel={() => setConfirm(null)}
+        >
+          This game ends and everyone goes back to the lobby, where people can join or leave before the next game.
+        </ConfirmDialog>
+      )}
+      {confirm === "end" && (
+        <ConfirmDialog title="End the game?" confirmLabel="End game" danger onConfirm={() => hostAction("endGame")} onCancel={() => setConfirm(null)}>
+          Play stops now and everyone sees the final scores. Nobody wins.
+        </ConfirmDialog>
       )}
       {room.stuck && room.stuck.playerId !== me && <AwayPlayerModal room={room} me={me} />}
       {myTurn && <YourTurnToast key={game.turnNumber} />}

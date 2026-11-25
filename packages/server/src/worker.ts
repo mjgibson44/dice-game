@@ -19,6 +19,28 @@ import { Room, type Result, type RoomDeps, type RoomSnapshot } from "./room.ts";
 interface Env {
   ROOMS: DurableObjectNamespace<GameRoom>;
   ASSETS: Fetcher;
+  /** Optional Cloudflare Realtime TURN key, for voice between phones that can't connect directly. */
+  TURN_KEY_ID?: string;
+  TURN_KEY_API_TOKEN?: string;
+}
+
+const STUN_SERVERS = [{ urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"] }];
+
+/** ICE servers for voice: free STUN always, plus short-lived TURN credentials when a TURN key is set up. */
+async function iceServers(env: Env): Promise<unknown[]> {
+  if (!env.TURN_KEY_ID || !env.TURN_KEY_API_TOKEN) return STUN_SERVERS;
+  try {
+    const res = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${env.TURN_KEY_ID}/credentials/generate-ice-servers`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${env.TURN_KEY_API_TOKEN}`, "content-type": "application/json" },
+      body: JSON.stringify({ ttl: 6 * 60 * 60 }),
+    });
+    if (!res.ok) return STUN_SERVERS;
+    const body = (await res.json()) as { iceServers: unknown[] | unknown };
+    return [...STUN_SERVERS, ...(Array.isArray(body.iceServers) ? body.iceServers : [body.iceServers])];
+  } catch {
+    return STUN_SERVERS;
+  }
 }
 
 /** How long a room with nobody connected sticks around before it's deleted. */
@@ -60,6 +82,10 @@ export default {
         if (created) return json({ code }, 201);
       }
       return json({ error: "Couldn't create a game. Try again." }, 503);
+    }
+
+    if (url.pathname === "/api/ice" && request.method === "GET") {
+      return json({ iceServers: await iceServers(env) });
     }
 
     const info = url.pathname.match(/^\/api\/rooms\/([A-Za-z0-9]+)$/);
@@ -257,6 +283,27 @@ export class GameRoom extends DurableObject<Env> {
       case "voteRemove":
         result = room.voteRemove(by, message.vote);
         break;
+      case "restart":
+        result = room.restart(by);
+        break;
+      case "backToLobby":
+        result = room.backToLobby(by);
+        break;
+      case "endGame":
+        result = room.endGame(by);
+        break;
+      case "voiceState":
+        result = room.setVoice(by, message.status);
+        break;
+      case "voice": {
+        // Pass voice set-up straight to the other player's sockets; nothing to save.
+        if (!room.canSignal(by, message.to)) return send(ws, { type: "error", message: "Can't reach that player." });
+        const relay: ServerMessage = { type: "voice", from: by, signal: message.signal };
+        for (const socket of this.ctx.getWebSockets()) {
+          if ((socket.deserializeAttachment() as Attachment | null)?.playerId === message.to) send(socket, relay);
+        }
+        return;
+      }
       default:
         return send(ws, { type: "error", message: "Unknown message." });
     }

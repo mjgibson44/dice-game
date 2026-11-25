@@ -1,4 +1,4 @@
-import { CODE_LENGTH, MAX_NAME_LENGTH, MAX_PLAYERS, MIN_PLAYERS, normalizeCode } from "@dice-game/shared";
+import { CODE_LENGTH, MAX_NAME_LENGTH, MAX_PLAYERS, normalizeCode } from "@dice-game/shared";
 import { useState } from "react";
 import { createRoom, fetchRoomInfo, loadSession } from "./online/connection.ts";
 
@@ -20,7 +20,6 @@ export const AUTO_JOIN_KEY = "dice-game:auto-join";
 
 export function Home({ onNavigate }: { onNavigate: (path: string) => void }) {
   const [name, setName] = useSavedName();
-  const [players, setPlayers] = useState(4);
   const [code, setCode] = useState("");
   const [pending, setPending] = useState<"create" | "join" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +41,7 @@ export function Home({ onNavigate }: { onNavigate: (path: string) => void }) {
     setError(null);
     setPending("create");
     try {
-      enter(await createRoom(players));
+      enter(await createRoom(MAX_PLAYERS));
     } catch (e) {
       setError((e as Error).message);
       setPending(null);
@@ -100,16 +99,9 @@ export function Home({ onNavigate }: { onNavigate: (path: string) => void }) {
 
       <div className="panel open card">
         <h2>Host a game</h2>
-        <div className="field">
-          <span>How many players?</span>
-          <div className="stepper">
-            {Array.from({ length: MAX_PLAYERS - MIN_PLAYERS + 1 }, (_, i) => i + MIN_PLAYERS).map((n) => (
-              <button key={n} type="button" className={n === players ? "chip active" : "chip"} onClick={() => setPlayers(n)}>
-                {n}
-              </button>
-            ))}
-          </div>
-        </div>
+        <p className="muted small">
+          Up to {MAX_PLAYERS} players. Share the code, then start when everyone's in.
+        </p>
         <button type="button" className="primary big-button" onClick={create} disabled={pending !== null}>
           {pending === "create" ? "Creating…" : "Create game"}
         </button>

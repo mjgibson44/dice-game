@@ -8,9 +8,12 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { GameState } from "@dice-game/shared";
 
 const MUTE_KEY = "dice-game:muted";
+const VOLUME_KEY = "dice-game:sfx-volume";
 
 let ctx: AudioContext | null = null;
+let master: GainNode | null = null;
 let muted = localStorage.getItem(MUTE_KEY) === "1";
+let volume = Number(localStorage.getItem(VOLUME_KEY) ?? "0.8");
 const listeners = new Set<() => void>();
 
 function audio(): AudioContext | null {
@@ -19,6 +22,9 @@ function audio(): AudioContext | null {
     const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Ctor) return null;
     ctx = new Ctor();
+    master = ctx.createGain();
+    master.gain.value = volume;
+    master.connect(ctx.destination);
   }
   if (ctx.state === "suspended") void ctx.resume();
   return ctx;
@@ -33,6 +39,28 @@ export function setMuted(value: boolean) {
   muted = value;
   localStorage.setItem(MUTE_KEY, value ? "1" : "0");
   for (const l of listeners) l();
+}
+
+export function setVolume(value: number) {
+  volume = value;
+  localStorage.setItem(VOLUME_KEY, String(value));
+  if (master) master.gain.value = value;
+  for (const l of listeners) l();
+}
+
+export function useSoundVolume(): number {
+  return useSyncExternalStore(
+    (l) => {
+      listeners.add(l);
+      return () => listeners.delete(l);
+    },
+    () => volume,
+  );
+}
+
+/** A short click so people can hear the new volume while dragging the slider. */
+export function previewVolume() {
+  sounds.turnChange();
 }
 
 export function useMuted(): boolean {
@@ -54,7 +82,7 @@ function tone(ac: AudioContext, freq: number, start: number, duration: number, v
   gain.gain.setValueAtTime(0.0001, start);
   gain.gain.exponentialRampToValueAtTime(volume, start + 0.01);
   gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
-  osc.connect(gain).connect(ac.destination);
+  osc.connect(gain).connect(master!);
   osc.start(start);
   osc.stop(start + duration + 0.02);
 }
@@ -73,7 +101,7 @@ function clack(ac: AudioContext, start: number, volume: number, pitch: number) {
   filter.Q.value = 1.2;
   const gain = ac.createGain();
   gain.gain.value = volume;
-  src.connect(filter).connect(gain).connect(ac.destination);
+  src.connect(filter).connect(gain).connect(master!);
   src.start(start);
 }
 
@@ -111,7 +139,7 @@ export const sounds = {
     gain.gain.setValueAtTime(0.0001, t);
     gain.gain.exponentialRampToValueAtTime(0.25, t + 0.02);
     gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
-    osc.connect(gain).connect(ac.destination);
+    osc.connect(gain).connect(master!);
     osc.start(t);
     osc.stop(t + 0.45);
   },

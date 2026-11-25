@@ -97,6 +97,23 @@ Several combos can be set aside from the same roll (e.g. three 4s + a 1 + a 5 = 
 - Sounds (synthesized, no files): dice rattle on rolls, chime on banks, bonk on crap-outs,
   a tick when play passes, and a three-note chime when it's your turn. On/off in ☰ menu.
 
+### Voice chat
+- "Join voice" in the lobby or the game (mic button in the top bar). Audio goes straight
+  between browsers (WebRTC, everyone connects to everyone); the room's WebSocket only
+  passes the set-up messages along, and `/api/ice` hands out connection servers.
+- Mic badge next to each name while in voice; it ripples while that person talks
+  (worked out on each device from the audio itself) and shows crossed out when muted.
+- ☰ menu: voice on/off, microphone on/off, live mic level, and a volume slider for voices.
+- Only STUN is set up, so some phones on cellular networks may not connect. To fix, create a
+  TURN key in the Cloudflare dashboard (Realtime → TURN) and run:
+  `npx wrangler secret put TURN_KEY_ID` and `npx wrangler secret put TURN_KEY_API_TOKEN`
+  in `packages/server`. The worker then hands out short-lived TURN credentials automatically.
+
+### Menu and host controls
+- Everyone: sound effects on/off and volume, voice settings, rules, history, Leave game.
+- Host: Restart game, Back to lobby, End game, each with a confirmation.
+- No player count to choose: rooms take up to 5 and the host starts when everyone's in.
+
 ### Known gaps in online play
 - Testing several players on one computer needs a different address per tab
   (localhost, 127.0.0.1, your network IP), since a seat is saved per site.
@@ -115,8 +132,9 @@ cover a game this size. iOS needs a tap before the mic turns on, so there will b
 4. ~~Online client: create/join, lobby, live game view~~ ✅
 5. ~~Game-over screen~~ ✅
 6. ~~Deploy (Cloudflare, dice.mjgibson.com)~~ ✅ Next: play a real game across phones
-7. Voice chat
-8. Polish: animations, sound, haptics; skipping away players
+7. ~~Voice chat~~ ✅ (add a TURN key for cellular)
+8. ~~Sounds, away players, host controls~~ ✅
+9. Next: try a real game on phones; settle the open rule questions
 
 ## Development
 ```bash

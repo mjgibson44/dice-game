@@ -389,3 +389,69 @@ describe("players who go away", () => {
     expect(copy.view().stuck).toBeNull();
   });
 });
+
+describe("voice", () => {
+  it("tracks who's in voice and muted, and drops them when they disconnect", () => {
+    const { room } = setup();
+    const [a, b] = seat(room, "Ann", "Ben");
+    expect(room.view().members[0]?.voice).toBe("off");
+    ok(room.setVoice(a!.id, "on"));
+    ok(room.setVoice(b!.id, "muted"));
+    expect(room.view().members.map((m) => m.voice)).toEqual(["on", "muted"]);
+    expect(room.setVoice(a!.id, "loud").ok).toBe(false);
+    room.setConnected(a!.id, false);
+    expect(room.view().members[0]?.voice).toBe("off");
+    ok(room.resume(a!.id, a!.token));
+    expect(room.view().members[0]?.voice).toBe("off");
+  });
+
+  it("only passes voice set-up between seated players", () => {
+    const { room } = setup();
+    const [a, b] = seat(room, "Ann", "Ben");
+    expect(room.canSignal(a!.id, b!.id)).toBe(true);
+    expect(room.canSignal(a!.id, a!.id)).toBe(false);
+    expect(room.canSignal(a!.id, "stranger")).toBe(false);
+  });
+});
+
+describe("host controls", () => {
+  function started() {
+    const s = setup(4);
+    const [a, b, c] = seat(s.room, "Ann", "Ben", "Cat");
+    ok(s.room.start(a!.id));
+    return { ...s, a: a!, b: b!, c: c! };
+  }
+
+  it("restart deals a fresh game with the same players, host only", () => {
+    const { room, a, b, script } = started();
+    script(1, 1, 1, 2, 3);
+    ok(room.roll(a.id, []));
+    expect(room.restart(b.id).ok).toBe(false);
+    ok(room.restart(a.id));
+    expect(room.game).toMatchObject({ turnNumber: 1, current: 0, history: [] });
+    expect(room.game?.turn?.roll).toBeNull();
+  });
+
+  it("back to lobby clears the game and lets people join again", () => {
+    const { room, a, c } = started();
+    room.setConnected(c.id, false); // Cat has gone for good
+    expect(room.backToLobby(c.id).ok).toBe(false);
+    ok(room.backToLobby(a.id));
+    expect(room.status).toBe("lobby");
+    expect(room.game).toBeNull();
+    expect(room.members.map((m) => m.name)).toEqual(["Ann", "Ben"]);
+    ok(room.join("Dee"));
+    expect(room.members).toHaveLength(3);
+  });
+
+  it("end game stops play and shows scores with no winner", () => {
+    const { room, a, b } = started();
+    expect(room.endGame(b.id).ok).toBe(false);
+    ok(room.endGame(a.id));
+    expect(room.status).toBe("finished");
+    expect(room.game).toMatchObject({ phase: "finished", winnerId: null, endReason: "ended" });
+    expect(room.endGame(a.id).ok).toBe(false);
+    ok(room.restart(a.id));
+    expect(room.status).toBe("playing");
+  });
+});

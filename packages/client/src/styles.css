@@ -1096,3 +1096,220 @@ button.die {
     opacity: 0;
   }
 }
+
+/* --- Voice ------------------------------------------------------------------ */
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mic-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgb(255 255 255 / 0.2);
+  background: rgb(0 0 0 / 0.25);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mic-button svg {
+  font-size: 1.15rem;
+}
+
+.mic-button.live {
+  border-color: var(--good);
+  color: var(--good);
+}
+
+.mic-button.live.muted {
+  border-color: rgb(255 255 255 / 0.2);
+  color: var(--muted);
+}
+
+.mic-button.talking {
+  box-shadow: 0 0 0 3px rgb(142 240 168 / 0.35);
+}
+
+.mic-button:disabled {
+  opacity: 0.6;
+}
+
+/* Mic next to a name; rings ripple out while they talk. */
+.voice-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25em;
+  height: 1.25em;
+  margin-left: 6px;
+  vertical-align: -0.2em;
+  border-radius: 50%;
+  color: var(--muted);
+  font-size: 0.95em;
+}
+
+.voice-badge svg {
+  width: 0.85em;
+  height: 0.85em;
+}
+
+.voice-badge.talking {
+  color: #12321f;
+  background: var(--good);
+}
+
+.voice-badge.talking::before,
+.voice-badge.talking::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid var(--good);
+  animation: ripple 1s ease-out infinite;
+}
+
+.voice-badge.talking::after {
+  animation-delay: 0.5s;
+}
+
+@keyframes ripple {
+  from {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  to {
+    transform: scale(2.1);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-badge.talking::before,
+  .voice-badge.talking::after {
+    animation: none;
+  }
+}
+
+/* --- Menu settings ---------------------------------------------------------- */
+
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 32px;
+}
+
+.setting-row input[type="range"] {
+  flex: 1;
+  max-width: 60%;
+  accent-color: var(--gold);
+}
+
+.switch {
+  appearance: none;
+  width: 48px;
+  height: 28px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.2);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+}
+
+.switch:checked {
+  background: var(--good);
+}
+
+.switch:checked::after {
+  transform: translateX(20px);
+}
+
+.switch:disabled {
+  opacity: 0.5;
+}
+
+.level-meter {
+  flex: 1;
+  max-width: 60%;
+  height: 8px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.12);
+  overflow: hidden;
+}
+
+.level-meter span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--good), var(--gold));
+  transform-origin: left;
+  transition: transform 0.1s linear;
+}
+
+.small {
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.host-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.menu-action {
+  text-align: left;
+  padding: 12px 4px;
+  background: none;
+  border: none;
+  border-top: 1px solid rgb(255 255 255 / 0.06);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.menu-action.bad {
+  color: var(--bad);
+}
+
+.menu-action.leave {
+  text-align: center;
+  border: 1px solid rgb(255 138 122 / 0.4);
+  border-radius: var(--radius);
+}
+
+.modal-button.danger {
+  background: var(--bad);
+  color: #3a0d06;
+}
+
+.game-over .link.center {
+  margin-top: 4px;
+}

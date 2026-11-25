@@ -14,7 +14,7 @@ import {
 } from "@dice-game/shared";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { Die } from "./Die.tsx";
-import { setMuted, useGameSounds, useMuted } from "./sound.ts";
+import { previewVolume, setMuted, setVolume, useGameSounds, useMuted, useSoundVolume } from "./sound.ts";
 
 export const fmt = (n: number) => n.toLocaleString("en-US");
 const dice = (n: number) => `${n} ${n === 1 ? "die" : "dice"}`;
@@ -37,6 +37,10 @@ export interface GameViewProps {
   error: string | null;
   hintIndices?: readonly number[] | null;
   label: string;
+  /** Extra things after a player's name on the scoreboard (the voice badge online). */
+  nameBadge?: (playerId: string) => ReactNode;
+  /** Extra controls in the top bar, before the menu button (the mic button online). */
+  topbarExtra?: ReactNode;
   onToggle: (index: number) => void;
   onRoll: () => void;
   onBank: () => void;
@@ -93,11 +97,14 @@ export function GameView(props: GameViewProps) {
     <main className="app game">
       <header className="topbar">
         <span className="eyebrow">{label}</span>
-        <button type="button" className="menu-button" onClick={props.onOpenMenu} aria-label="Menu">
-          <span />
-          <span />
-          <span />
-        </button>
+        <span className="topbar-actions">
+          {props.topbarExtra}
+          <button type="button" className="menu-button" onClick={props.onOpenMenu} aria-label="Menu">
+            <span />
+            <span />
+            <span />
+          </button>
+        </span>
       </header>
 
       <ol className="scoreboard">
@@ -106,6 +113,7 @@ export function GameView(props: GameViewProps) {
             <span className="name">
               {p.name}
               {p.id === meId && " (you)"}
+              {props.nameBadge?.(p.id)}
             </span>
             <span className="score">{fmt(p.score)}</span>
             {awayIds?.has(p.id) ? (
@@ -362,13 +370,31 @@ export function HistoryPanel({ game }: { game: GameState }) {
   );
 }
 
-/** Sound on/off, for the ☰ menu. */
-export function SoundToggle() {
+/** Sound effects on/off and volume, for the ☰ menu. */
+export function SoundSettings() {
   const muted = useMuted();
+  const volume = useSoundVolume();
   return (
-    <label className="check panel">
-      <input type="checkbox" checked={!muted} onChange={(e) => setMuted(!e.target.checked)} />
-      <span>Sound effects</span>
-    </label>
+    <div className="panel settings">
+      <label className="setting-row">
+        <span>Sound effects</span>
+        <input type="checkbox" className="switch" checked={!muted} onChange={(e) => setMuted(!e.target.checked)} />
+      </label>
+      {!muted && (
+        <label className="setting-row">
+          <span className="muted">Volume</span>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            value={volume}
+            onChange={(e) => setVolume(Number(e.target.value))}
+            onPointerUp={previewVolume}
+            onKeyUp={previewVolume}
+          />
+        </label>
+      )}
+    </div>
   );
 }

@@ -4,7 +4,7 @@
  * time using the session saved on this device.
  */
 
-import type { ClientMessage, RoomInfo, RoomView, ServerMessage } from "@dice-game/shared";
+import type { ClientMessage, RoomInfo, RoomView, ServerMessage, VoiceSignal } from "@dice-game/shared";
 import { useSyncExternalStore } from "react";
 
 export interface Session {
@@ -72,6 +72,7 @@ class Connection {
   private ws: WebSocket | null = null;
   private queue: ClientMessage[] = [];
   private listeners = new Set<() => void>();
+  private voiceListeners = new Set<(from: string, signal: VoiceSignal) => void>();
   private retries = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private everOpened = false;
@@ -128,6 +129,11 @@ class Connection {
   };
 
   getState = () => this.state;
+
+  /** Voice set-up messages from other players. */
+  onVoice(listener: (from: string, signal: VoiceSignal) => void) {
+    this.voiceListeners.add(listener);
+  }
 
   private set(patch: Partial<ConnectionState>) {
     this.state = { ...this.state, ...patch };
@@ -245,6 +251,9 @@ class Connection {
       case "left":
         saveSession(null);
         this.set({ room: null, me: null });
+        break;
+      case "voice":
+        for (const l of this.voiceListeners) l(message.from, message.signal);
         break;
     }
   }

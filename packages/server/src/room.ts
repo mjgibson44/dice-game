@@ -11,6 +11,7 @@ import {
   chooseStart,
   createGame,
   currentPlayer,
+  endGame,
   keep,
   MAX_NAME_LENGTH,
   MAX_PLAYERS,
@@ -25,6 +26,7 @@ import {
   type GameState,
   type RoomStatus,
   type RoomView,
+  type VoiceStatus,
 } from "@dice-game/shared";
 
 export interface Member {
@@ -35,6 +37,7 @@ export interface Member {
   connected: boolean;
   /** When they dropped off, or null while connected. */
   awaySince?: number | null;
+  voice?: VoiceStatus;
 }
 
 interface RemoveVotes {
@@ -164,10 +167,25 @@ export class Room {
       member.awaySince = null;
       // They're back: any vote to remove them is off.
       if (this.removeVotes?.targetId === playerId) this.removeVotes = null;
-    } else if (member.connected || member.awaySince == null) {
-      member.awaySince = this.deps.now();
+    } else {
+      if (member.connected || member.awaySince == null) member.awaySince = this.deps.now();
+      // Dropping off ends their voice call.
+      member.voice = "off";
     }
     member.connected = connected;
+  }
+
+  setVoice(by: string, status: unknown): Result {
+    const member = this.members.find((m) => m.id === by);
+    if (!member) return fail("Join the game first.");
+    if (status !== "off" && status !== "on" && status !== "muted") return fail("Unknown voice status.");
+    member.voice = status;
+    return ok(undefined);
+  }
+
+  /** Whether `to` is someone `from` may send voice set-up to. */
+  canSignal(from: string, to: unknown): to is string {
+    return from !== to && this.members.some((m) => m.id === from) && this.members.some((m) => m.id === to);
   }
 
   private awayFor(member: Member): number {
@@ -286,11 +304,42 @@ export class Room {
     return ok(undefined);
   }
 
+  /** Host: start over with the same players, whether or not this game is finished. */
+  restart(by: string): Result {
+    if (by !== this.hostId) return fail("Only the host can restart the game.");
+    if (this.status === "lobby") return fail("The game hasn't started.");
+    if (this.members.length < MIN_PLAYERS) return fail(`Need at least ${MIN_PLAYERS} players.`);
+    this.beginGame();
+    return ok(undefined);
+  }
+
+  /** Host: back to the lobby, so people can join or leave before the next game. */
+  backToLobby(by: string): Result {
+    if (by !== this.hostId) return fail("Only the host can do that.");
+    if (this.status === "lobby") return fail("You're already in the lobby.");
+    this.status = "lobby";
+    this.game = null;
+    this.selection = [];
+    this.pauseEndsAt = null;
+    this.removeVotes = null;
+    // Seats of people who left for good open up again.
+    this.members = this.members.filter((m) => m.connected || m.id === this.hostId);
+    return ok(undefined);
+  }
+
+  /** Host: stop the game now and show final scores. */
+  endGame(by: string): Result {
+    if (by !== this.hostId) return fail("Only the host can end the game.");
+    if (this.status !== "playing" || !this.game) return fail("There's no game running.");
+    return this.commit(endGame(this.game));
+  }
+
   private beginGame() {
     this.game = createGame(this.members.map(({ id, name }) => ({ id, name })));
     this.status = "playing";
     this.selection = [];
     this.pauseEndsAt = null;
+    this.removeVotes = null;
   }
 
   /** The current player's live dice selection, shown to everyone. */
@@ -394,6 +443,7 @@ export class Room {
         name: m.name,
         connected: m.connected,
         awayMs: m.connected ? null : this.awayFor(m),
+        voice: m.connected ? (m.voice ?? "off") : "off",
       })),
       game: this.game,
       selection: this.selection,

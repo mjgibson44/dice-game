@@ -1,4 +1,5 @@
 import type { GameState, Player } from "@dice-game/shared";
+import type { ReactNode } from "react";
 
 const fmt = (n: number) => n.toLocaleString("en-US");
 
@@ -43,28 +44,41 @@ interface GameOverProps {
   onGoHome: () => void;
   /** Shown instead of Play again for online players who aren't the host. */
   waitingNote?: string;
+  /** Anything extra under the buttons (host's "back to lobby" online). */
+  footer?: ReactNode;
 }
 
-export function GameOver({ game, meId, onPlayAgain, onGoHome, waitingNote }: GameOverProps) {
+export function GameOver({ game, meId, onPlayAgain, onGoHome, waitingNote, footer }: GameOverProps) {
   const winner = game.players.find((p) => p.id === game.winnerId);
   const finalTurn = game.history.at(-1);
   const rows = standings(game);
+  const ended = game.endReason === "ended";
 
   return (
     <main className="app game-over">
       <section className="winner">
         <div className="trophy" aria-hidden>
-          🏆
+          {ended ? "🏁" : "🏆"}
         </div>
-        <h1>{winner && (winner.id === meId || (meId === null && winner.name === "You")) ? "You win!" : `${winner?.name ?? "Someone"} wins!`}</h1>
+        <h1>
+          {ended
+            ? "Game ended"
+            : winner && (winner.id === meId || (meId === null && winner.name === "You"))
+              ? "You win!"
+              : `${winner?.name ?? "Someone"} wins!`}
+        </h1>
         <p className="muted">
-          {game.endReason === "last-player" ? "Everyone else left the game" : `Hit exactly ${fmt(game.config.target)}`}
+          {ended
+            ? "The host stopped the game. Final scores:"
+            : game.endReason === "last-player"
+              ? "Everyone else left the game"
+              : `Hit exactly ${fmt(game.config.target)}`}
         </p>
         <div className="game-facts">
           <span>
-            <strong>{game.turnNumber}</strong> turns
+            <strong>{game.turnNumber}</strong> {game.turnNumber === 1 ? "turn" : "turns"}
           </span>
-          {finalTurn && (
+          {finalTurn && !ended && (
             <span>
               Final bank <strong>{fmt(finalTurn.points)}</strong>
             </span>
@@ -108,6 +122,7 @@ export function GameOver({ game, meId, onPlayAgain, onGoHome, waitingNote }: Gam
           <div className="waiting">{waitingNote ?? ""}</div>
         )}
       </div>
+      {footer}
     </main>
   );
 }
