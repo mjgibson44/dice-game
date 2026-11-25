@@ -6,7 +6,7 @@
 import { currentPlayer, MAX_NAME_LENGTH, MIN_PLAYERS, type RoomView } from "@dice-game/shared";
 import { useEffect, useRef, useState } from "react";
 import { GameOver } from "../GameOver.tsx";
-import { GameView, HistoryPanel, MenuSheet, RulesPanel } from "../GameView.tsx";
+import { GameView, HistoryPanel, MenuSheet, RulesPanel, SoundToggle } from "../GameView.tsx";
 import { AUTO_JOIN_KEY, useSavedName } from "../Home.tsx";
 import { connection, loadSession, useConnection } from "./connection.ts";
 
@@ -308,6 +308,7 @@ function OnlineGame({ room, me, receivedAt, error, onLeave }: OnlineGameProps) {
               Close
             </button>
           </div>
+          <SoundToggle />
           <div className="panel invite-line">
             Game code <strong>{room.code}</strong>
           </div>
@@ -315,6 +316,81 @@ function OnlineGame({ room, me, receivedAt, error, onLeave }: OnlineGameProps) {
           <HistoryPanel game={game} />
         </MenuSheet>
       )}
+      {room.stuck && room.stuck.playerId !== me && <AwayPlayerModal room={room} me={me} />}
+      {myTurn && <YourTurnToast key={game.turnNumber} />}
     </>
+  );
+}
+
+/** "It's your turn" — shows when a turn comes to you, hides after 3 seconds or on a tap. */
+function YourTurnToast() {
+  const [visible, setVisible] = useState(true);
+  useEffect(() => {
+    // Browsers only allow a buzz once the page has been tapped.
+    if (navigator.userActivation?.hasBeenActive) navigator.vibrate?.(60);
+    const timer = setTimeout(() => setVisible(false), 3000);
+    return () => clearTimeout(timer);
+  }, []);
+  if (!visible) return null;
+  return (
+    <div className="toast-backdrop" onClick={() => setVisible(false)}>
+      <div className="toast" role="status">
+        <span className="toast-dice" aria-hidden>
+          🎲
+        </span>
+        It's your turn!
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Shown to everyone else when the player whose turn it is has been away for a
+ * minute: anyone can skip their turn, and everyone together can vote them out.
+ */
+function AwayPlayerModal({ room, me }: { room: RoomView; me: string }) {
+  const stuck = room.stuck!;
+  const name = room.members.find((m) => m.id === stuck.playerId)?.name ?? "This player";
+  // "Keep waiting" tucks the dialog into a bar until the turn changes.
+  const key = `${stuck.playerId}:${room.game?.turnNumber}`;
+  const [minimizedFor, setMinimizedFor] = useState<string | null>(null);
+  const iVoted = stuck.votes.includes(me);
+  const others = stuck.voters.filter((id) => id !== me);
+  const othersVoted = stuck.votes.filter((id) => id !== me).length;
+
+  if (minimizedFor === key) {
+    return (
+      <button type="button" className="away-bar" onClick={() => setMinimizedFor(null)}>
+        {name} is away · <strong>Options</strong>
+      </button>
+    );
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <div className="modal" role="alertdialog" aria-labelledby="away-title">
+        <h2 id="away-title">{name} has been away for over a minute</h2>
+        <p className="muted">It's their turn. You can skip it, or vote to remove them from the game.</p>
+        <button type="button" className="primary modal-button" onClick={() => connection.send({ type: "skipTurn" })}>
+          Skip {name}'s turn
+        </button>
+        <button
+          type="button"
+          className={iVoted ? "secondary modal-button voted" : "secondary modal-button"}
+          onClick={() => connection.send({ type: "voteRemove", vote: !iVoted })}
+        >
+          <span>{iVoted ? "✓ You voted to remove them" : `Vote to remove ${name} from the game`}</span>
+          <span className="sub">
+            {stuck.votes.length} of {stuck.voters.length} {stuck.voters.length === 1 ? "vote" : "votes"}
+            {others.length === 0
+              ? " · your vote decides"
+              : ` · needs everyone${iVoted && othersVoted < others.length ? `, waiting on ${others.length - othersVoted}` : ""}`}
+          </span>
+        </button>
+        <button type="button" className="link" onClick={() => setMinimizedFor(key)}>
+          Keep waiting
+        </button>
+      </div>
+    </div>
   );
 }

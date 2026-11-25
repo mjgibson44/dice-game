@@ -14,6 +14,12 @@ export interface Session {
 }
 
 const SESSION_KEY = "dice-game:session";
+/** Send a keep-alive this often; the server answers "pong" without waking the game. */
+const PING_EVERY_MS = 20_000;
+/** No pong within this long means the connection is dead (common after a phone sleeps). */
+const PONG_TIMEOUT_MS = 6_000;
+/** Shorter check when coming back to the tab, so a dead connection is replaced fast. */
+const RETURN_PONG_TIMEOUT_MS = 3_000;
 
 /** The seat saved on this device, optionally only if it's for `code`. */
 export function loadSession(code?: string): Session | null {
@@ -71,12 +77,49 @@ class Connection {
   private everOpened = false;
   private resuming = false;
   private state: ConnectionState = IDLE;
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private pongDeadline: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
-    // Coming back to a backgrounded tab: reconnect straight away rather than waiting out the backoff.
+    // Coming back to the tab or app: the connection may have died while we were away.
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible" && this.state.status === "reconnecting") this.connect();
+      if (document.visibilityState !== "visible") return;
+      if (this.state.status === "reconnecting") this.connect();
+      else if (this.ws?.readyState === WebSocket.OPEN) this.ping(RETURN_PONG_TIMEOUT_MS);
     });
+    addEventListener("online", () => {
+      if (this.state.status === "reconnecting") this.connect();
+    });
+  }
+
+  /** Check the connection is really alive; if no answer comes back in time, start over. */
+  private ping(timeoutMs = PONG_TIMEOUT_MS) {
+    if (this.ws?.readyState !== WebSocket.OPEN || this.pongDeadline) return;
+    this.ws.send("ping");
+    this.pongDeadline = setTimeout(() => {
+      this.pongDeadline = null;
+      this.dropConnection();
+    }, timeoutMs);
+  }
+
+  private stopHeartbeat() {
+    if (this.pingTimer) clearInterval(this.pingTimer);
+    if (this.pongDeadline) clearTimeout(this.pongDeadline);
+    this.pingTimer = null;
+    this.pongDeadline = null;
+  }
+
+  /** Give up on a connection that looks open but isn't answering, and reconnect now. */
+  private dropConnection() {
+    const ws = this.ws;
+    if (!ws) return;
+    this.ws = null;
+    this.stopHeartbeat();
+    ws.onclose = ws.onmessage = ws.onopen = null;
+    ws.close();
+    this.retries = 0;
+    this.set({ status: "reconnecting" });
+    this.connect();
   }
 
   subscribe = (listener: () => void) => {
@@ -103,6 +146,7 @@ class Connection {
 
   close() {
     this.code = null;
+    this.stopHeartbeat();
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.retryTimer = null;
     const ws = this.ws;
@@ -131,11 +175,21 @@ class Connection {
         this.raw({ type: "resume", playerId: session.playerId, token: session.token });
       }
       for (const message of this.queue.splice(0)) this.raw(message);
+      this.stopHeartbeat();
+      this.pingTimer = setInterval(() => this.ping(), PING_EVERY_MS);
     };
-    ws.onmessage = (event) => this.receive(JSON.parse(String(event.data)) as ServerMessage);
+    ws.onmessage = (event) => {
+      if (event.data === "pong") {
+        if (this.pongDeadline) clearTimeout(this.pongDeadline);
+        this.pongDeadline = null;
+        return;
+      }
+      this.receive(JSON.parse(String(event.data)) as ServerMessage);
+    };
     ws.onclose = async () => {
       if (this.ws !== ws) return;
       this.ws = null;
+      this.stopHeartbeat();
       // Never got in: check whether the room exists at all before retrying forever.
       if (!this.everOpened) {
         const info = await fetchRoomInfo(code).catch(() => undefined);
@@ -175,14 +229,15 @@ class Connection {
         this.set({ room: message.room, roomReceivedAt: Date.now(), error: null, fatal: false });
         break;
       case "error":
-        if (this.resuming) {
+        if (message.fatal) {
+          this.resuming = false;
+          saveSession(null);
+          this.set({ room: null, me: null, error: message.message, fatal: true });
+        } else if (this.resuming) {
           // Our saved seat is gone (we left, or the game was reset). Offer to join afresh.
           this.resuming = false;
           saveSession(null);
           this.set({ me: null, room: null, error: message.message });
-        } else if (message.fatal) {
-          saveSession(null);
-          this.set({ room: null, me: null, error: message.message, fatal: true });
         } else {
           this.set({ error: message.message });
         }

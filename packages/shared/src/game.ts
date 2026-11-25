@@ -58,7 +58,7 @@ export type GamePhase = "deciding" | "playing" | "turn-over" | "finished";
 export interface TurnRecord {
   turnNumber: number;
   playerId: string;
-  outcome: "banked" | "crapped-out";
+  outcome: "banked" | "crapped-out" | "skipped";
   /** Points added to the player's score. */
   points: number;
   /** Points picked up from the previous player's live dice. */
@@ -79,6 +79,8 @@ export interface GameState {
   deadDice: DeadDiceReason | null;
   turnNumber: number;
   winnerId: string | null;
+  /** Why the game ended: someone hit the target, or everyone else was removed. */
+  endReason?: "target" | "last-player";
   history: TurnRecord[];
 }
 
@@ -173,6 +175,7 @@ function finishTurn(state: GameState, turn: TurnState): GameState {
     phase: won ? "finished" : "turn-over",
     live: banked && !won ? { fromPlayerId: player.id, turnPoints: turn.turnPoints, diceToRoll: turn.diceToRoll } : null,
     winnerId: won ? player.id : null,
+    ...(won ? { endReason: "target" as const } : {}),
     history: [...state.history, record],
   };
 }
@@ -212,4 +215,63 @@ export function nextTurn(state: GameState): GameResult {
       turn: null,
     }),
   };
+}
+
+/**
+ * Skip the current player's turn (they've gone away). It scores nothing, any
+ * live dice are dropped, and the next player starts fresh.
+ */
+export function skipTurn(state: GameState): GameResult {
+  if (state.phase === "turn-over") return nextTurn(state);
+  if (state.phase !== "playing" && state.phase !== "deciding") return { ok: false, error: "There's no turn to skip." };
+  const record: TurnRecord = {
+    turnNumber: state.turnNumber,
+    playerId: currentPlayer(state).id,
+    outcome: "skipped",
+    points: 0,
+    inherited: 0,
+    crapOutReason: null,
+  };
+  return {
+    ok: true,
+    state: beginTurn({
+      ...state,
+      history: [...state.history, record],
+      live: null,
+      current: (state.current + 1) % state.players.length,
+      turnNumber: state.turnNumber + 1,
+      turn: null,
+    }),
+  };
+}
+
+/**
+ * Take a player out of the game. If it was their turn, the next player starts.
+ * If only one player is left, they win.
+ */
+export function removePlayer(state: GameState, playerId: string): GameResult {
+  const index = state.players.findIndex((p) => p.id === playerId);
+  if (index < 0) return { ok: false, error: "That player isn't in the game." };
+  if (state.phase === "finished") return { ok: false, error: "The game is over." };
+  const players = state.players.filter((_, i) => i !== index);
+  const live = state.live?.fromPlayerId === playerId ? null : state.live;
+
+  if (players.length === 1) {
+    return {
+      ok: true,
+      state: { ...state, players, current: 0, phase: "finished", turn: null, live: null, winnerId: players[0]!.id, endReason: "last-player" },
+    };
+  }
+  if (players.length === 0) return { ok: false, error: "Can't remove the last player." };
+
+  if (index === state.current) {
+    // Their turn ends where it is; whoever sat after them starts now.
+    return {
+      ok: true,
+      state: beginTurn({ ...state, players, live: null, current: index % players.length, turnNumber: state.turnNumber + 1, turn: null }),
+    };
+  }
+  const next = { ...state, players, live, current: index < state.current ? state.current - 1 : state.current };
+  // The current player was choosing whether to use the removed player's live dice: that offer is gone.
+  return { ok: true, state: next.phase === "deciding" && !live ? beginTurn(next) : next };
 }

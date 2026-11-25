@@ -15,6 +15,8 @@ import type { GameState } from "./game.ts";
 export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 5;
 export const MAX_NAME_LENGTH = 20;
+/** How long someone can be away before others can skip them (or the host role moves on). */
+export const AWAY_LIMIT_MS = 60_000;
 /** Largest WebSocket message the server accepts. */
 export const MAX_MESSAGE_BYTES = 4096;
 
@@ -31,6 +33,17 @@ export interface MemberView {
   id: string;
   name: string;
   connected: boolean;
+  /** How long they've been disconnected, or null while connected. */
+  awayMs: number | null;
+}
+
+/** The current player has been away too long: others can skip them or vote them out. */
+export interface StuckView {
+  playerId: string;
+  /** Players who've voted to remove them. */
+  votes: string[];
+  /** Everyone else who's connected; all of them must vote yes. */
+  voters: string[];
 }
 
 export type RoomStatus = "lobby" | "playing" | "finished";
@@ -50,6 +63,7 @@ export interface RoomView {
   rollCount: number;
   /** While a finished turn is on show, how long until play passes on. */
   pauseRemainingMs: number | null;
+  stuck: StuckView | null;
 }
 
 /** What GET /api/rooms/CODE says about a room before you join it. */
@@ -73,6 +87,10 @@ export type ClientMessage =
   | { type: "choose"; choice: "fresh" | "continue" }
   /** Skip the rest of the pause after a turn ends. */
   | { type: "next" }
+  /** Skip the turn of a player who's been away too long. */
+  | { type: "skipTurn" }
+  /** Vote (or take back a vote) to remove a player who's been away too long. */
+  | { type: "voteRemove"; vote: boolean }
   | { type: "playAgain" };
 
 export type ServerMessage =

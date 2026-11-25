@@ -14,6 +14,7 @@ import {
 } from "@dice-game/shared";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { Die } from "./Die.tsx";
+import { setMuted, useGameSounds, useMuted } from "./sound.ts";
 
 export const fmt = (n: number) => n.toLocaleString("en-US");
 const dice = (n: number) => `${n} ${n === 1 ? "die" : "dice"}`;
@@ -86,6 +87,7 @@ export function GameView(props: GameViewProps) {
   const liveFromName = live ? nameOf(live.fromPlayerId) : null;
 
   const secondsLeft = useSecondsLeft(pauseEndsAt);
+  useGameSounds(game, rollId, meId);
 
   return (
     <main className="app game">
@@ -350,12 +352,23 @@ export function HistoryPanel({ game }: { game: GameState }) {
               {game.players.find((p) => p.id === h.playerId)?.name} · T{h.turnNumber}
             </span>
             <span className={h.outcome === "banked" ? "good" : "bad"}>
-              {h.outcome === "banked" ? `+${fmt(h.points)}` : "Crapped out"}
+              {h.outcome === "banked" ? `+${fmt(h.points)}` : h.outcome === "skipped" ? "Skipped" : "Crapped out"}
             </span>
             <span className="muted">{h.inherited > 0 ? `carried ${fmt(h.inherited)}` : ""}</span>
           </li>
         ))}
       </ol>
     </details>
+  );
+}
+
+/** Sound on/off, for the ☰ menu. */
+export function SoundToggle() {
+  const muted = useMuted();
+  return (
+    <label className="check panel">
+      <input type="checkbox" checked={!muted} onChange={(e) => setMuted(!e.target.checked)} />
+      <span>Sound effects</span>
+    </label>
   );
 }

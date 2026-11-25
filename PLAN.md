@@ -85,9 +85,19 @@ Several combos can be set aside from the same roll (e.g. three 4s + a 1 + a 5 = 
 - Hosting: Cloudflare Workers free plan (100k requests/day; each WebSocket message counts
   toward Durable Object usage, plenty for games among friends).
 
+### Staying connected and away players
+- The app pings the server every 20s and checks again the moment you return to the tab;
+  if there's no answer it reconnects and rejoins your seat. The server drops sockets
+  that go silent for 90s, so a sleeping phone shows as "away".
+- Host away for a full minute: the host role passes to the next connected player.
+- Current player away for a full minute: everyone else gets a dialog to **skip their turn**
+  (anyone can) or **vote to remove them** (needs every other connected player). A removed
+  player's seat and score are gone; if one player is left, they win.
+- "It's your turn!" pops up for 3 seconds (tap to hide) when a turn comes to you.
+- Sounds (synthesized, no files): dice rattle on rolls, chime on banks, bonk on crap-outs,
+  a tick when play passes, and a three-note chime when it's your turn. On/off in ☰ menu.
+
 ### Known gaps in online play
-- If the current player leaves or drops for good, the game waits for them. Needs a way
-  to skip an away player (e.g. auto-skip after a minute, or host can skip).
 - Testing several players on one computer needs a different address per tab
   (localhost, 127.0.0.1, your network IP), since a seat is saved per site.
 

@@ -6,7 +6,9 @@ import {
   currentPlayer,
   keep,
   nextTurn,
+  removePlayer,
   roll,
+  skipTurn,
   type GameResult,
   type GameState,
 } from "../src/game.ts";
@@ -188,5 +190,71 @@ describe("winning on exactly 10,000", () => {
     g = ok(bankTurn(g));
     expect(g.phase).toBe("finished");
     expect(nextTurn(g).ok).toBe(false);
+  });
+});
+
+describe("skipping and removing players", () => {
+  const three = () => newGame(["A", "B", "C"], { A: onBoard, B: onBoard, C: onBoard });
+
+  it("skipping ends the turn with nothing and passes to the next player", () => {
+    let g = rollKeep(three(), [1, 1, 1, 2, 3], [0, 1, 2]); // A has 1000 on the table
+    g = ok(skipTurn(g));
+    expect(currentPlayer(g).id).toBe("B");
+    expect(g.phase).toBe("playing");
+    expect(g.players[0]?.score).toBe(0);
+    expect(g.history.at(-1)).toMatchObject({ playerId: "A", outcome: "skipped", points: 0 });
+  });
+
+  it("skipping someone deciding about live dice drops the live dice", () => {
+    let g = rollKeep(three(), [1, 1, 1, 2, 3], [0, 1, 2]);
+    g = next(ok(bankTurn(g)));
+    expect(g.phase).toBe("deciding");
+    g = ok(skipTurn(g));
+    expect(currentPlayer(g).id).toBe("C");
+    expect(g.live).toBeNull();
+    expect(g.phase).toBe("playing");
+  });
+
+  it("removing the current player starts the next player's turn", () => {
+    const g = ok(removePlayer(rollKeep(three(), [1, 1, 1, 2, 3], [0, 1, 2]), "A"));
+    expect(g.players.map((p) => p.id)).toEqual(["B", "C"]);
+    expect(currentPlayer(g).id).toBe("B");
+    expect(g.turn).toMatchObject({ turnPoints: 0, diceToRoll: 5 });
+  });
+
+  it("removing the last seat's current player wraps to the first", () => {
+    let g = next(ok(roll(three(), [2, 3, 4, 6, 6])));
+    g = next(ok(roll(g, [2, 3, 4, 6, 6])));
+    expect(currentPlayer(g).id).toBe("C");
+    g = ok(removePlayer(g, "C"));
+    expect(currentPlayer(g).id).toBe("A");
+  });
+
+  it("removing someone else keeps the current player's turn going", () => {
+    let g = next(ok(roll(three(), [2, 3, 4, 6, 6]))); // B's turn
+    g = rollKeep(g, [5, 2, 3, 4, 6], [0]);
+    g = ok(removePlayer(g, "A"));
+    expect(currentPlayer(g).id).toBe("B");
+    expect(g.turn?.turnPoints).toBe(50);
+  });
+
+  it("removing the player whose live dice are on offer cancels the offer", () => {
+    let g = rollKeep(three(), [1, 1, 1, 2, 3], [0, 1, 2]);
+    g = next(ok(bankTurn(g))); // B deciding on A's dice
+    g = ok(removePlayer(g, "A"));
+    expect(g.phase).toBe("playing");
+    expect(currentPlayer(g).id).toBe("B");
+    expect(g.turn?.turnPoints).toBe(0);
+  });
+
+  it("the last player left wins", () => {
+    const g = ok(removePlayer(newGame(["A", "B"]), "A"));
+    expect(g).toMatchObject({ phase: "finished", winnerId: "B", endReason: "last-player" });
+  });
+
+  it("a game won normally says so", () => {
+    let g = rollKeep(newGame(["A", "B"], { A: { score: 9800, onBoard: true } }), [1, 1, 3, 4, 6], [0, 1]);
+    g = ok(bankTurn(g));
+    expect(g.endReason).toBe("target");
   });
 });

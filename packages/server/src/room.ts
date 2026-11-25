@@ -1,10 +1,12 @@
 /**
  * One online game room: seats, lobby, and the authoritative game state.
  * No sockets or timers in here, so it's easy to test. The server calls these
- * methods, then broadcasts `view()` and schedules `advance()` from `pauseEndsAt`.
+ * methods, broadcasts `view()`, and calls `tick()` at `nextDeadline()` for
+ * anything time-based (turn-over pause, host handoff, away players).
  */
 
 import {
+  AWAY_LIMIT_MS,
   bankTurn,
   chooseStart,
   createGame,
@@ -14,8 +16,10 @@ import {
   MAX_PLAYERS,
   MIN_PLAYERS,
   nextTurn,
+  removePlayer,
   roll,
   rollDice,
+  skipTurn,
   TURN_OVER_PAUSE_MS,
   type GameResult,
   type GameState,
@@ -29,6 +33,13 @@ export interface Member {
   /** Secret that lets this member rejoin their seat after a disconnect. */
   token: string;
   connected: boolean;
+  /** When they dropped off, or null while connected. */
+  awaySince?: number | null;
+}
+
+interface RemoveVotes {
+  targetId: string;
+  voters: string[];
 }
 
 export type Result<T = void> = { ok: true; value: T } | { ok: false; error: string };
@@ -54,6 +65,8 @@ export interface RoomSnapshot {
   selection: number[];
   rollCount: number;
   pauseEndsAt: number | null;
+  removedIds?: string[];
+  removeVotes?: RemoveVotes | null;
 }
 
 export function cleanName(raw: string): string | null {
@@ -72,6 +85,9 @@ export class Room {
   rollCount = 0;
   /** When the finished turn on show should pass to the next player, or null. */
   pauseEndsAt: number | null = null;
+  /** Players voted out; their saved seats no longer work. */
+  removedIds: string[] = [];
+  removeVotes: RemoveVotes | null = null;
 
   private readonly deps: RoomDeps;
 
@@ -92,6 +108,8 @@ export class Room {
       selection: this.selection,
       rollCount: this.rollCount,
       pauseEndsAt: this.pauseEndsAt,
+      removedIds: this.removedIds,
+      removeVotes: this.removeVotes,
     };
   }
 
@@ -104,6 +122,8 @@ export class Room {
     room.selection = snapshot.selection;
     room.rollCount = snapshot.rollCount;
     room.pauseEndsAt = snapshot.pauseEndsAt;
+    room.removedIds = snapshot.removedIds ?? [];
+    room.removeVotes = snapshot.removeVotes ?? null;
     return room;
   }
 
@@ -113,7 +133,13 @@ export class Room {
     if (this.members.length >= this.maxPlayers) return fail("That game is full.");
     const base = cleanName(rawName);
     if (!base) return fail("Enter a name first.");
-    const member: Member = { id: this.deps.newId(), name: this.uniqueName(base), token: this.deps.newId(), connected: true };
+    const member: Member = {
+      id: this.deps.newId(),
+      name: this.uniqueName(base),
+      token: this.deps.newId(),
+      connected: true,
+      awaySince: null,
+    };
     this.members.push(member);
     if (!this.hostId) this.hostId = member.id;
     return ok(member);
@@ -123,13 +149,29 @@ export class Room {
   resume(playerId: string, token: string): Result<Member> {
     const member = this.members.find((m) => m.id === playerId);
     if (!member || member.token !== token) return fail("You're no longer in that game.");
-    member.connected = true;
+    this.setConnected(playerId, true);
     return ok(member);
+  }
+
+  wasRemoved(playerId: string): boolean {
+    return this.removedIds.includes(playerId);
   }
 
   setConnected(playerId: string, connected: boolean) {
     const member = this.members.find((m) => m.id === playerId);
-    if (member) member.connected = connected;
+    if (!member) return;
+    if (connected) {
+      member.awaySince = null;
+      // They're back: any vote to remove them is off.
+      if (this.removeVotes?.targetId === playerId) this.removeVotes = null;
+    } else if (member.connected || member.awaySince == null) {
+      member.awaySince = this.deps.now();
+    }
+    member.connected = connected;
+  }
+
+  private awayFor(member: Member): number {
+    return member.connected || member.awaySince == null ? 0 : this.deps.now() - member.awaySince;
   }
 
   /**
@@ -142,8 +184,87 @@ export class Room {
       if (this.hostId === playerId) this.hostId = this.members[0]?.id ?? "";
     } else {
       this.setConnected(playerId, false);
-      if (this.hostId === playerId) this.hostId = this.members.find((m) => m.connected)?.id ?? this.hostId;
+      if (this.hostId === playerId) this.passHost();
     }
+  }
+
+  /** Make the next connected player (in seat order after the current host) the host. */
+  private passHost() {
+    const from = Math.max(0, this.members.findIndex((m) => m.id === this.hostId));
+    for (let step = 1; step <= this.members.length; step++) {
+      const candidate = this.members[(from + step) % this.members.length]!;
+      if (candidate.connected && candidate.id !== this.hostId) {
+        this.hostId = candidate.id;
+        return;
+      }
+    }
+  }
+
+  /** The current player, if they've been away long enough for others to skip or remove them. */
+  stuckPlayer(): Member | null {
+    const game = this.game;
+    if (!game || this.status !== "playing" || (game.phase !== "playing" && game.phase !== "deciding")) return null;
+    const member = this.members.find((m) => m.id === currentPlayer(game).id);
+    return member && !member.connected && this.awayFor(member) >= AWAY_LIMIT_MS ? member : null;
+  }
+
+  /** Connected players other than `excludeId`: everyone whose vote counts. */
+  private votersExcept(excludeId: string): string[] {
+    return this.members.filter((m) => m.connected && m.id !== excludeId).map((m) => m.id);
+  }
+
+  /** Handle anything that's come due: the turn-over pause ending, or the host being away too long. */
+  tick() {
+    const now = this.deps.now();
+    if (this.pauseEndsAt !== null && now >= this.pauseEndsAt) this.advance();
+    const host = this.members.find((m) => m.id === this.hostId);
+    if (host && !host.connected && this.awayFor(host) >= AWAY_LIMIT_MS) this.passHost();
+  }
+
+  /** When `tick()` next has something to do (or the current player becomes skippable), or null. */
+  nextDeadline(): number | null {
+    const times: number[] = [];
+    if (this.pauseEndsAt !== null) times.push(this.pauseEndsAt);
+    const awayDeadline = (m: Member | undefined) => {
+      if (m && !m.connected && m.awaySince != null && this.awayFor(m) < AWAY_LIMIT_MS) times.push(m.awaySince + AWAY_LIMIT_MS);
+    };
+    const host = this.members.find((m) => m.id === this.hostId);
+    if (host && this.members.some((m) => m.connected && m.id !== host.id)) awayDeadline(host);
+    if (this.game && (this.game.phase === "playing" || this.game.phase === "deciding")) {
+      awayDeadline(this.members.find((m) => m.id === currentPlayer(this.game!).id));
+    }
+    return times.length ? Math.min(...times) : null;
+  }
+
+  /** Skip the turn of a player who's been away too long. Anyone else connected can do this. */
+  skipTurn(by: string): Result {
+    const stuck = this.stuckPlayer();
+    if (!stuck) return fail("Nobody needs skipping right now.");
+    if (!this.votersExcept(stuck.id).includes(by)) return fail("You can't skip this turn.");
+    return this.commit(skipTurn(this.game!));
+  }
+
+  /** Vote to remove a player who's been away too long. They're out once everyone else connected agrees. */
+  voteRemove(by: string, vote: unknown): Result {
+    const stuck = this.stuckPlayer();
+    if (!stuck) return fail("Nobody needs removing right now.");
+    const voters = this.votersExcept(stuck.id);
+    if (!voters.includes(by)) return fail("You can't vote on this.");
+    const current = this.removeVotes?.targetId === stuck.id ? this.removeVotes.voters : [];
+    const next = vote === true ? [...new Set([...current, by])] : current.filter((id) => id !== by);
+    this.removeVotes = { targetId: stuck.id, voters: next };
+    if (voters.every((id) => next.includes(id))) return this.removeMember(stuck.id);
+    return ok(undefined);
+  }
+
+  private removeMember(playerId: string): Result {
+    const result = this.commit(removePlayer(this.game!, playerId));
+    if (!result.ok) return result;
+    if (this.hostId === playerId) this.passHost();
+    this.members = this.members.filter((m) => m.id !== playerId);
+    this.removedIds.push(playerId);
+    this.removeVotes = null;
+    return ok(undefined);
   }
 
   get isEmpty(): boolean {
@@ -248,6 +369,8 @@ export class Room {
     this.selection = [];
     this.pauseEndsAt = this.game.phase === "turn-over" ? this.deps.now() + TURN_OVER_PAUSE_MS : null;
     if (this.game.phase === "finished") this.status = "finished";
+    // Votes are about the player whose turn it is; a new turn starts the count over.
+    if (this.removeVotes && this.removeVotes.targetId !== currentPlayer(this.game).id) this.removeVotes = null;
     return ok(undefined);
   }
 
@@ -266,11 +389,27 @@ export class Room {
       hostId: this.hostId,
       maxPlayers: this.maxPlayers,
       status: this.status,
-      members: this.members.map(({ id, name, connected }) => ({ id, name, connected })),
+      members: this.members.map((m) => ({
+        id: m.id,
+        name: m.name,
+        connected: m.connected,
+        awayMs: m.connected ? null : this.awayFor(m),
+      })),
       game: this.game,
       selection: this.selection,
       rollCount: this.rollCount,
       pauseRemainingMs: this.pauseEndsAt === null ? null : Math.max(0, this.pauseEndsAt - this.deps.now()),
+      stuck: this.stuckView(),
+    };
+  }
+
+  private stuckView(): RoomView["stuck"] {
+    const stuck = this.stuckPlayer();
+    if (!stuck) return null;
+    return {
+      playerId: stuck.id,
+      votes: this.removeVotes?.targetId === stuck.id ? this.removeVotes.voters : [],
+      voters: this.votersExcept(stuck.id),
     };
   }
 }

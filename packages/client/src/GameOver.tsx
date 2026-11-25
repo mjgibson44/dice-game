@@ -28,7 +28,7 @@ function standings(game: GameState): Standing[] {
       player,
       rank,
       banks: banked.length,
-      crapOuts: turns.length - banked.length,
+      crapOuts: turns.filter((h) => h.outcome === "crapped-out").length,
       bestTurn: Math.max(0, ...banked.map((h) => h.points)),
     };
   });
@@ -57,7 +57,9 @@ export function GameOver({ game, meId, onPlayAgain, onGoHome, waitingNote }: Gam
           🏆
         </div>
         <h1>{winner && (winner.id === meId || (meId === null && winner.name === "You")) ? "You win!" : `${winner?.name ?? "Someone"} wins!`}</h1>
-        <p className="muted">Hit exactly {fmt(game.config.target)}</p>
+        <p className="muted">
+          {game.endReason === "last-player" ? "Everyone else left the game" : `Hit exactly ${fmt(game.config.target)}`}
+        </p>
         <div className="game-facts">
           <span>
             <strong>{game.turnNumber}</strong> turns

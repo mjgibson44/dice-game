@@ -23,6 +23,10 @@ interface Env {
 
 /** How long a room with nobody connected sticks around before it's deleted. */
 const EMPTY_ROOM_TTL_MS = 30 * 60 * 1000;
+/** Browsers ping every 20s; a socket silent for this long is treated as gone. */
+const SILENT_SOCKET_MS = 90_000;
+/** How often to look for silent sockets while anyone is connected. */
+const LIVENESS_CHECK_MS = 30_000;
 
 /** Uniform random integer in [0, n), from the platform's crypto RNG. */
 function randomInt(n: number): number {
@@ -77,6 +81,8 @@ export default {
 
 interface Attachment {
   playerId: string | null;
+  /** When this socket connected, as a baseline before its first ping. */
+  openedAt: number;
 }
 
 export class GameRoom extends DurableObject<Env> {
@@ -117,7 +123,7 @@ export class GameRoom extends DurableObject<Env> {
     const pair = new WebSocketPair();
     const [client, server] = [pair[0], pair[1]];
     this.ctx.acceptWebSocket(server);
-    server.serializeAttachment({ playerId: null } satisfies Attachment);
+    server.serializeAttachment({ playerId: null, openedAt: Date.now() } satisfies Attachment);
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -148,7 +154,10 @@ export class GameRoom extends DurableObject<Env> {
     await this.detach(ws);
   }
 
-  /** Fires for the end of a turn-over pause, or to delete a room everyone has left. */
+  /**
+   * Fires for anything time-based: a turn-over pause ending, someone being away
+   * a full minute, checking for silent sockets, or deleting an abandoned room.
+   */
   override async alarm() {
     const room = this.room;
     if (!room) return;
@@ -158,8 +167,36 @@ export class GameRoom extends DurableObject<Env> {
       await this.ctx.storage.deleteAll();
       return;
     }
-    if (room.pauseEndsAt !== null && now >= room.pauseEndsAt) room.advance();
-    await this.afterChange();
+    const before = this.signature();
+    this.dropSilentSockets(now);
+    room.tick();
+    // Only tell everyone if something they'd see changed (not just the clock moving).
+    await this.afterChange(this.signature() !== before);
+  }
+
+  private signature(): string {
+    const room = this.room!;
+    const stuck = room.stuckPlayer();
+    return [room.status, room.hostId, room.game?.turnNumber, room.game?.phase, stuck?.id, room.members.map((m) => m.connected).join()].join("|");
+  }
+
+  /** Close sockets that stopped pinging (a phone that went to sleep without hanging up). */
+  private dropSilentSockets(now: number) {
+    let dropped = false;
+    for (const ws of this.ctx.getWebSockets()) {
+      const attachment = ws.deserializeAttachment() as Attachment | null;
+      const lastPing = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? 0;
+      const lastHeard = Math.max(lastPing, attachment?.openedAt ?? 0);
+      if (now - lastHeard > SILENT_SOCKET_MS) {
+        try {
+          ws.close(4000, "No ping");
+        } catch {
+          // Already closed.
+        }
+        dropped = true;
+      }
+    }
+    if (dropped) this.syncConnected();
   }
 
   private async handle(ws: WebSocket, message: ClientMessage) {
@@ -168,12 +205,15 @@ export class GameRoom extends DurableObject<Env> {
     const attachment = ws.deserializeAttachment() as Attachment | null;
 
     if (message.type === "join" || message.type === "resume") {
+      if (message.type === "resume" && room.wasRemoved(String(message.playerId))) {
+        return send(ws, { type: "error", message: "You were removed from this game.", fatal: true });
+      }
       const seat =
         message.type === "join"
           ? room.join(String(message.name ?? ""))
           : room.resume(String(message.playerId), String(message.token));
-      if (!seat.ok) return send(ws, { type: "error", message: seat.error, fatal: message.type === "resume" });
-      ws.serializeAttachment({ playerId: seat.value.id } satisfies Attachment);
+      if (!seat.ok) return send(ws, { type: "error", message: seat.error });
+      ws.serializeAttachment({ playerId: seat.value.id, openedAt: attachment?.openedAt ?? Date.now() } satisfies Attachment);
       if (message.type === "join") {
         send(ws, { type: "welcome", code: room.code, playerId: seat.value.id, token: seat.value.token });
       }
@@ -187,7 +227,7 @@ export class GameRoom extends DurableObject<Env> {
     switch (message.type) {
       case "leave":
         room.leave(by);
-        ws.serializeAttachment({ playerId: null } satisfies Attachment);
+        ws.serializeAttachment({ playerId: null, openedAt: attachment.openedAt } satisfies Attachment);
         send(ws, { type: "left" });
         return this.afterChange();
       case "start":
@@ -210,6 +250,12 @@ export class GameRoom extends DurableObject<Env> {
         break;
       case "playAgain":
         result = room.playAgain(by);
+        break;
+      case "skipTurn":
+        result = room.skipTurn(by);
+        break;
+      case "voteRemove":
+        result = room.voteRemove(by, message.vote);
         break;
       default:
         return send(ws, { type: "error", message: "Unknown message." });
@@ -235,20 +281,23 @@ export class GameRoom extends DurableObject<Env> {
         .map((s) => (s.deserializeAttachment() as Attachment | null)?.playerId)
         .filter(Boolean),
     );
-    for (const m of this.room.members) m.connected = live.has(m.id);
+    for (const m of this.room.members) this.room.setConnected(m.id, live.has(m.id));
   }
 
-  /** Save, set the next alarm, and tell everyone. */
-  private async afterChange() {
+  /** Save, set the next alarm, and (unless told not to) tell everyone. */
+  private async afterChange(broadcast = true) {
     const room = this.room;
     if (!room) return;
-    this.cleanupAt = room.isEmpty ? (this.cleanupAt ?? Date.now() + EMPTY_ROOM_TTL_MS) : null;
+    const now = Date.now();
+    this.cleanupAt = room.isEmpty ? (this.cleanupAt ?? now + EMPTY_ROOM_TTL_MS) : null;
     await this.ctx.storage.put({ room: room.snapshot(), cleanupAt: this.cleanupAt });
 
-    const next = Math.min(room.pauseEndsAt ?? Infinity, this.cleanupAt ?? Infinity);
+    const livenessCheck = this.ctx.getWebSockets().length > 0 ? now + LIVENESS_CHECK_MS : Infinity;
+    const next = Math.min(room.nextDeadline() ?? Infinity, this.cleanupAt ?? Infinity, livenessCheck);
     if (next === Infinity) await this.ctx.storage.deleteAlarm();
     else await this.ctx.storage.setAlarm(next);
 
+    if (!broadcast) return;
     const message = JSON.stringify({ type: "room", room: room.view() } satisfies ServerMessage);
     for (const socket of this.ctx.getWebSockets()) {
       const attachment = socket.deserializeAttachment() as Attachment | null;

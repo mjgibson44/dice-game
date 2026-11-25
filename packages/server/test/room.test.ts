@@ -247,3 +247,145 @@ describe("saving and restoring", () => {
     expect(copy.game?.players[0]?.score).toBe(1000);
   });
 });
+
+describe("players who go away", () => {
+  function started(names = ["Ann", "Ben", "Cat"]) {
+    const s = setup(names.length);
+    const members = seat(s.room, ...names);
+    ok(s.room.start(members[0]!.id));
+    return { ...s, members };
+  }
+
+  it("reports how long someone has been away", () => {
+    const { room, members, tick } = started();
+    room.setConnected(members[1]!.id, false);
+    tick(12_000);
+    expect(room.view().members[1]).toMatchObject({ connected: false, awayMs: 12_000 });
+    expect(room.view().members[0]?.awayMs).toBeNull();
+  });
+
+  it("hands the host role on after the host has been away a full minute", () => {
+    const { room, members, tick } = started();
+    const [a, b] = members;
+    room.setConnected(a!.id, false);
+    expect(room.nextDeadline()).toBe(1_000 + 60_000);
+    tick(59_000);
+    room.tick();
+    expect(room.hostId).toBe(a!.id);
+    tick(1_000);
+    room.tick();
+    expect(room.hostId).toBe(b!.id);
+    // Coming back doesn't take it back.
+    ok(room.resume(a!.id, a!.token));
+    expect(room.hostId).toBe(b!.id);
+  });
+
+  it("skips a disconnected host's seat when handing on to the next connected player", () => {
+    const { room, members, tick } = started();
+    const [a, b, c] = members;
+    room.setConnected(b!.id, false);
+    room.setConnected(a!.id, false);
+    tick(60_000);
+    room.tick();
+    expect(room.hostId).toBe(c!.id);
+  });
+
+  it("also hands the host on in the lobby", () => {
+    const { room, tick } = setup();
+    const [a, b] = seat(room, "Ann", "Ben");
+    room.setConnected(a!.id, false);
+    tick(60_000);
+    room.tick();
+    expect(room.hostId).toBe(b!.id);
+  });
+
+  it("the current player becomes skippable after a minute away", () => {
+    const { room, members, tick } = started();
+    const [a, b] = members;
+    room.setConnected(a!.id, false);
+    expect(room.view().stuck).toBeNull();
+    expect(room.skipTurn(b!.id).ok).toBe(false);
+    tick(60_000);
+    expect(room.view().stuck).toEqual({ playerId: a!.id, votes: [], voters: [b!.id, members[2]!.id] });
+    ok(room.skipTurn(b!.id));
+    expect(room.game?.players[room.game.current]?.id).toBe(b!.id);
+    expect(room.game?.history.at(-1)?.outcome).toBe("skipped");
+    expect(room.view().stuck).toBeNull();
+  });
+
+  it("the away player can't be skipped by themselves, and players back in time aren't skippable", () => {
+    const { room, members, tick } = started();
+    const [a] = members;
+    room.setConnected(a!.id, false);
+    tick(30_000);
+    room.setConnected(a!.id, true);
+    tick(60_000);
+    expect(room.view().stuck).toBeNull();
+  });
+
+  it("removes a player once everyone else connected votes yes", () => {
+    const { room, members, tick } = started();
+    const [a, b, c] = members;
+    room.setConnected(a!.id, false);
+    tick(60_000);
+    ok(room.voteRemove(b!.id, true));
+    expect(room.view().stuck?.votes).toEqual([b!.id]);
+    expect(room.members).toHaveLength(3);
+    ok(room.voteRemove(b!.id, false)); // change of mind
+    expect(room.view().stuck?.votes).toEqual([]);
+    ok(room.voteRemove(b!.id, true));
+    ok(room.voteRemove(c!.id, true));
+    expect(room.members.map((m) => m.name)).toEqual(["Ben", "Cat"]);
+    expect(room.game?.players.map((p) => p.name)).toEqual(["Ben", "Cat"]);
+    expect(room.game?.players[room.game.current]?.id).toBe(b!.id);
+    expect(room.hostId).toBe(b!.id);
+    // Their saved seat no longer works.
+    expect(room.resume(a!.id, a!.token).ok).toBe(false);
+    expect(room.wasRemoved(a!.id)).toBe(true);
+  });
+
+  it("only connected players' votes are needed", () => {
+    const { room, members, tick } = started();
+    const [a, b, c] = members;
+    room.setConnected(c!.id, false);
+    room.setConnected(a!.id, false);
+    tick(60_000);
+    ok(room.voteRemove(b!.id, true));
+    expect(room.game?.players.map((p) => p.id)).toEqual([b!.id, c!.id]);
+  });
+
+  it("votes reset if the away player comes back", () => {
+    const { room, members, tick } = started();
+    const [a, b] = members;
+    room.setConnected(a!.id, false);
+    tick(60_000);
+    ok(room.voteRemove(b!.id, true));
+    ok(room.resume(a!.id, a!.token));
+    room.setConnected(a!.id, false);
+    tick(60_000);
+    expect(room.view().stuck?.votes).toEqual([]);
+  });
+
+  it("removing one of two players ends the game with the other winning", () => {
+    const { room, members, tick } = started(["Ann", "Ben"]);
+    const [a, b] = members;
+    room.setConnected(a!.id, false);
+    tick(60_000);
+    ok(room.voteRemove(b!.id, true));
+    expect(room.status).toBe("finished");
+    expect(room.game).toMatchObject({ winnerId: b!.id, endReason: "last-player" });
+  });
+
+  it("restores older saved rooms without the new fields", () => {
+    const { room } = setup();
+    seat(room, "Ann", "Ben");
+    const old = JSON.parse(JSON.stringify(room.snapshot()));
+    delete old.removedIds;
+    delete old.removeVotes;
+    for (const m of old.members) delete m.awaySince;
+    const copy = Room.restore(old, { random: () => 0, now: () => 5_000, newId: () => "x" });
+    copy.setConnected(old.members[0].id, false);
+    expect(copy.view().members[0]?.awayMs).toBe(0);
+    expect(copy.view().stuck).toBeNull();
+  });
+});
