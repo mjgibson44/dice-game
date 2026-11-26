@@ -91,6 +91,7 @@ export function GameView(props: GameViewProps) {
   const liveFromName = live ? nameOf(live.fromPlayerId) : null;
 
   const secondsLeft = useSecondsLeft(pauseEndsAt);
+  const showTurnCard = useYourTurnCard(isMe && (game.phase === "playing" || game.phase === "deciding"), game.turnNumber);
   useGameSounds(game, rollId, meId);
 
   return (
@@ -126,6 +127,11 @@ export function GameView(props: GameViewProps) {
       </ol>
 
       <section className="table" aria-live="polite">
+        {showTurnCard.visible && (
+          <button type="button" className="turn-card" onClick={showTurnCard.hide}>
+            It's your turn
+          </button>
+        )}
         <div className="turn-head">
           <span className="whose">{isMe ? "Your turn" : player.name}</span>
           {game.phase !== "deciding" && (
@@ -302,6 +308,24 @@ export function GameView(props: GameViewProps) {
       </p>
     </main>
   );
+}
+
+/**
+ * "It's your turn" card at the top of the table: shows when a turn comes to
+ * you online, and hides after 3 seconds or on a tap. It sits inside the
+ * table, so the dice and buttons stay usable the whole time.
+ */
+function useYourTurnCard(myTurn: boolean, turnNumber: number) {
+  const [shownFor, setShownFor] = useState<number | null>(null);
+  useEffect(() => {
+    if (!myTurn) return;
+    setShownFor(turnNumber);
+    // Browsers only allow a buzz once the page has been tapped.
+    if (navigator.userActivation?.hasBeenActive) navigator.vibrate?.(60);
+    const timer = setTimeout(() => setShownFor(null), 3000);
+    return () => clearTimeout(timer);
+  }, [myTurn, turnNumber]);
+  return { visible: myTurn && shownFor === turnNumber, hide: () => setShownFor(null) };
 }
 
 function useSecondsLeft(endsAt: number | null): number {

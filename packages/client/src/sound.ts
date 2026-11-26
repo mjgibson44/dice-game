@@ -87,36 +87,104 @@ function tone(ac: AudioContext, freq: number, start: number, duration: number, v
   osc.stop(start + duration + 0.02);
 }
 
-/** A short burst of filtered noise: one die clacking. */
-function clack(ac: AudioContext, start: number, volume: number, pitch: number) {
-  const length = Math.floor(ac.sampleRate * 0.045);
-  const buffer = ac.createBuffer(1, length, ac.sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / length) ** 3;
+/** How long the cup shakes before the dice spill out. The dice animation waits this long too. */
+export const SHAKE_MS = 380;
+
+let noiseBuffer: AudioBuffer | null = null;
+
+/** One second of white noise, made once and reused for every click. */
+function noise(ac: AudioContext): AudioBuffer {
+  if (noiseBuffer?.sampleRate === ac.sampleRate) return noiseBuffer;
+  noiseBuffer = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+  const data = noiseBuffer.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+  return noiseBuffer;
+}
+
+/** A tiny click of noise: a die knocking into something. */
+function tick(ac: AudioContext, out: AudioNode, start: number, volume: number, pitch: number, length = 0.012, q = 2) {
   const src = ac.createBufferSource();
-  src.buffer = buffer;
+  src.buffer = noise(ac);
   const filter = ac.createBiquadFilter();
   filter.type = "bandpass";
   filter.frequency.value = pitch;
-  filter.Q.value = 1.2;
+  filter.Q.value = q;
   const gain = ac.createGain();
-  gain.gain.value = volume;
-  src.connect(filter).connect(gain).connect(master!);
-  src.start(start);
+  gain.gain.setValueAtTime(volume, start);
+  gain.gain.exponentialRampToValueAtTime(0.0001, start + length);
+  src.connect(filter).connect(gain).connect(out);
+  src.start(start, Math.random() * 0.9, length + 0.01);
+}
+
+/** A soft low knock: a die landing on the table. */
+function thud(ac: AudioContext, start: number, volume: number, freq: number) {
+  const osc = ac.createOscillator();
+  const gain = ac.createGain();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(freq, start);
+  osc.frequency.exponentialRampToValueAtTime(freq * 0.6, start + 0.05);
+  gain.gain.setValueAtTime(volume, start);
+  gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.06);
+  osc.connect(gain).connect(master!);
+  osc.start(start);
+  osc.stop(start + 0.08);
+}
+
+/** Dice rattling inside a cup: muffled, hollow clicks in three quick shakes. */
+function cupShake(ac: AudioContext, t: number, dice: number) {
+  // The cup: cuts the bright edge off the clicks and adds a hollow ring.
+  const body = ac.createBiquadFilter();
+  body.type = "peaking";
+  body.frequency.value = 820;
+  body.Q.value = 3;
+  body.gain.value = 10;
+  const muffle = ac.createBiquadFilter();
+  muffle.type = "lowpass";
+  muffle.frequency.value = 2400;
+  body.connect(muffle).connect(master!);
+
+  const shakes = 3;
+  const gap = SHAKE_MS / 1000 / shakes;
+  for (let s = 0; s < shakes; s++) {
+    const at = t + s * gap;
+    // Dice slam into the side of the cup, then clatter against each other.
+    thud(ac, at, 0.12, 170 + Math.random() * 40);
+    const clicks = 4 + dice * 2;
+    for (let i = 0; i < clicks; i++) {
+      const when = at + Math.random() * gap * 0.75;
+      tick(ac, body, when, 0.35 + Math.random() * 0.35, 900 + Math.random() * 1800, 0.01 + Math.random() * 0.01);
+    }
+  }
+}
+
+/** The dice tumbling out onto the table: each one lands, bounces, and settles. */
+function spill(ac: AudioContext, t: number, dice: number) {
+  for (let d = 0; d < dice; d++) {
+    let at = t + Math.random() * 0.08;
+    let gap = 0.07 + Math.random() * 0.03;
+    let volume = 0.7 + Math.random() * 0.3;
+    const pitch = 1600 + Math.random() * 1400;
+    thud(ac, at, 0.22 * volume, 140 + Math.random() * 60);
+    // Bounces come quicker and quieter until the die comes to rest.
+    for (let b = 0; b < 4; b++) {
+      tick(ac, master!, at, 0.55 * volume, pitch * (1 + b * 0.05), 0.02, 1.5);
+      at += gap;
+      gap *= 0.62;
+      volume *= 0.5;
+    }
+  }
+  // A couple of dice clipping each other as they land.
+  for (let i = 0; i < 3; i++) tick(ac, master!, t + 0.03 + Math.random() * 0.15, 0.3, 3500 + Math.random() * 1500, 0.008, 3);
 }
 
 export const sounds = {
-  /** Dice rattling across the table. */
+  /** Dice shaken in a cup, then spilled across the table. */
   roll(dice = 5) {
     const ac = audio();
     if (!ac) return;
     const t = ac.currentTime;
-    const hits = 6 + dice * 2;
-    for (let i = 0; i < hits; i++) {
-      // Clacks bunch up early and thin out as the dice settle.
-      const at = t + 0.42 * (i / hits) ** 1.6 + Math.random() * 0.02;
-      clack(ac, at, 0.5 * (1 - (i / hits) * 0.6), 1800 + Math.random() * 2200);
-    }
+    cupShake(ac, t, dice);
+    spill(ac, t + SHAKE_MS / 1000, dice);
   },
   /** Banking: a bright two-note "ka-ching". */
   bank() {
@@ -178,7 +246,7 @@ export function useGameSounds(game: GameState, rollId: number, meId: string | nu
     if (rollId !== before.rollId) {
       if (game.turn?.phase === "crapped-out") {
         sounds.roll(game.turn.roll?.length);
-        setTimeout(() => sounds.bust(), 450);
+        setTimeout(() => sounds.bust(), SHAKE_MS + 450);
       } else {
         sounds.roll(game.turn?.roll?.length);
       }

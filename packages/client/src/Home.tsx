@@ -1,5 +1,6 @@
 import { CODE_LENGTH, MAX_NAME_LENGTH, MAX_PLAYERS, normalizeCode } from "@dice-game/shared";
 import { useState } from "react";
+import { Die } from "./Die.tsx";
 import { createRoom, fetchRoomInfo, loadSession } from "./online/connection.ts";
 
 const NAME_KEY = "dice-game:name";
@@ -76,7 +77,9 @@ export function Home({ onNavigate }: { onNavigate: (path: string) => void }) {
     <main className="app home">
       <section className="hero">
         <div className="hero-dice" role="img" aria-label="Dice Game">
-          🎲
+          {([3, 1, 6, 5, 2] as const).map((face, i) => (
+            <Die key={i} face={face} selected={face === 1 || face === 5} />
+          ))}
         </div>
       </section>
 

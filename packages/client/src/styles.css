@@ -1,21 +1,28 @@
+/*
+ * Flat and dark: near-black background, grey outlined tiles, and colour
+ * only where it means something. Green marks what scores or what to press,
+ * yellow marks whose turn it is, red marks trouble.
+ */
 :root {
-  --felt: #14532d;
-  --felt-dark: #0f3d22;
-  --felt-light: #1d6b3c;
-  --ink: #f4f1e8;
-  --muted: #b8cbbd;
-  --gold: #f5c84c;
-  --bad: #ff8a7a;
-  --good: #8ef0a8;
-  --die: #fbfaf6;
-  --pip: #1c1c1c;
-  --radius: 14px;
+  --bg: #121213;
+  --raised: #1c1c1e;
+  --line: #3a3a3c;
+  --line-strong: #565758;
+  --ink: #f8f8f8;
+  --muted: #818384;
+  --green: #538d4e;
+  --good: #6aaa64;
+  --gold: #c9b458;
+  --bad: #e2604f;
+  --radius: 6px;
+  /* How long the dice rattle in the cup before they land (matches SHAKE_MS in sound.ts). */
+  --shake: 380ms;
   /* Five dice must fit in one row on a 320px-wide phone. */
-  --die-size: clamp(40px, calc((min(100vw, 520px) - 112px) / 5), 64px);
+  --die-size: clamp(40px, calc((min(100vw, 520px) - 112px) / 5), 62px);
   color-scheme: dark;
-  font-family: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
   color: var(--ink);
-  background: var(--felt-dark);
+  background: var(--bg);
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -26,7 +33,7 @@
 body {
   margin: 0;
   min-height: 100dvh;
-  background: radial-gradient(ellipse at top, var(--felt-light), var(--felt) 45%, var(--felt-dark));
+  background: var(--bg);
 }
 
 button,
@@ -38,7 +45,7 @@ input {
 .app {
   max-width: 520px;
   margin: 0 auto;
-  padding: max(12px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+  padding: max(10px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -58,13 +65,15 @@ input {
 
 .setup h1 {
   margin: 24px 0 0;
-  font-size: 2.2rem;
+  font-size: 2rem;
+  font-weight: 800;
 }
 
 .eyebrow {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   color: var(--muted);
 }
 
@@ -89,6 +98,16 @@ input {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  min-height: 48px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.topbar .eyebrow {
+  color: var(--ink);
+  font-size: 0.85rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
 }
 
 .link {
@@ -106,54 +125,83 @@ input {
   margin: 0;
   padding: 0;
   display: flex;
-  gap: 8px;
+  gap: 6px;
   overflow-x: auto;
 }
 
 .scoreboard li {
   flex: 1 0 auto;
-  min-width: 84px;
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: rgb(0 0 0 / 0.2);
-  border: 2px solid transparent;
+  min-width: 80px;
+  padding: 7px 10px;
+  border-radius: var(--radius);
+  border: 2px solid var(--line);
   display: flex;
   flex-direction: column;
 }
 
 .scoreboard li.current {
   border-color: var(--gold);
-  background: rgb(0 0 0 / 0.35);
 }
 
 .scoreboard .name {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
+  font-weight: 600;
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+.scoreboard .current .name {
+  color: var(--ink);
+}
+
 .scoreboard .score {
-  font-size: 1.25rem;
-  font-weight: 700;
+  font-size: 1.2rem;
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
 
 .scoreboard .tag {
-  font-size: 0.65rem;
-  color: var(--gold);
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
 }
 
 /* Table */
 .table {
-  background: rgb(0 0 0 / 0.18);
-  border-radius: 20px;
-  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  box-shadow: inset 0 2px 12px rgb(0 0 0 / 0.35);
+}
+
+/* "It's your turn": a strip at the top of the table that never covers the buttons. */
+.turn-card {
+  flex-shrink: 0;
+  width: 100%;
+  min-height: 44px;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--green);
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  animation: card-in 0.3s ease-out;
+}
+
+@keyframes card-in {
+  from {
+    transform: translateY(-8px);
+    opacity: 0;
+  }
 }
 
 .turn-head {
@@ -163,14 +211,13 @@ input {
 }
 
 .whose {
-  font-size: 1.1rem;
-  font-weight: 600;
+  font-size: 1.05rem;
+  font-weight: 700;
 }
 
 .points {
-  font-size: 2.4rem;
+  font-size: 2.3rem;
   font-weight: 800;
-  color: var(--gold);
   font-variant-numeric: tabular-nums;
 }
 
@@ -184,16 +231,19 @@ input {
   justify-content: center;
   gap: 8px;
   flex-shrink: 0;
-  /* Room for a selected die's lift above and its shadow below. */
-  height: calc(var(--die-size) + 20px);
+  /* Room for a selected die's lift above. */
+  height: calc(var(--die-size) + 16px);
   padding-top: 8px;
 }
 
 .dice-row.placeholder {
   align-items: center;
   color: var(--muted);
-  border: 2px dashed rgb(255 255 255 / 0.15);
+  font-weight: 600;
+  border: 2px dashed var(--line);
   border-radius: var(--radius);
+  padding: 0 12px;
+  text-align: center;
 }
 
 /* Reserve three lines so messages appearing don't push the kept dice around. */
@@ -212,7 +262,7 @@ input {
   font-size: 1.6rem;
   font-weight: 800;
   line-height: 1.3;
-  color: var(--gold);
+  color: var(--good);
   font-variant-numeric: tabular-nums;
 }
 
@@ -227,25 +277,21 @@ input {
   font-size: 1.05rem;
 }
 
-/* Dice */
+/* Dice: outlined tiles that turn green when set aside. */
 .die {
   --size: var(--die-size);
   width: var(--size);
   height: var(--size);
-  padding: calc(var(--size) * 0.14);
-  background: var(--die);
-  border-radius: calc(var(--size) * 0.2);
-  border: none;
-  box-shadow:
-    0 3px 0 #d6d1c2,
-    0 6px 12px rgb(0 0 0 / 0.35);
+  padding: calc(var(--size) * 0.16);
+  background: var(--bg);
+  border: 2px solid var(--line-strong);
+  border-radius: calc(var(--size) * 0.14);
   display: inline-flex;
+  color: var(--ink);
   transition:
     transform 0.12s,
-    box-shadow 0.12s,
-    outline-color 0.12s;
-  outline: 3px solid transparent;
-  outline-offset: 3px;
+    background-color 0.12s,
+    border-color 0.12s;
 }
 
 button.die {
@@ -254,30 +300,51 @@ button.die {
 
 .die-sm {
   --size: 26px;
-  box-shadow: 0 1px 0 #d6d1c2;
+  border-width: 0;
+  padding: 4px;
+  background: var(--green);
 }
 
 .die.selected {
-  transform: translateY(-8px);
-  outline-color: var(--gold);
+  transform: translateY(-6px);
+  background: var(--green);
+  border-color: var(--green);
 }
 
 .die.hinted:not(.selected) {
-  outline-color: rgb(142 240 168 / 0.7);
-  outline-style: dashed;
+  border-color: var(--gold);
+  border-style: dashed;
 }
 
+/* Dice stay hidden while they rattle in the cup, then flip into place one after another. */
 .die.rolling {
-  animation: tumble 0.45s ease-out;
+  animation: flip-in 0.32s ease-out backwards;
+  animation-delay: var(--shake);
 }
 
-@keyframes tumble {
+.die.rolling:nth-child(2) {
+  animation-delay: calc(var(--shake) + 45ms);
+}
+
+.die.rolling:nth-child(3) {
+  animation-delay: calc(var(--shake) + 90ms);
+}
+
+.die.rolling:nth-child(4) {
+  animation-delay: calc(var(--shake) + 135ms);
+}
+
+.die.rolling:nth-child(5) {
+  animation-delay: calc(var(--shake) + 180ms);
+}
+
+@keyframes flip-in {
   0% {
-    transform: translateY(-30px) rotate(-200deg) scale(0.7);
+    transform: rotateX(90deg) scale(0.9);
     opacity: 0;
   }
-  70% {
-    transform: translateY(4px) rotate(10deg) scale(1.03);
+  60% {
+    transform: rotateX(-12deg);
     opacity: 1;
   }
   100% {
@@ -285,15 +352,17 @@ button.die {
   }
 }
 
-/* Crap-out: once the dice land, grey them out and give the row a shake. */
+/* Crap-out: once the dice land, dim them and give the row a shake. */
 .dice-row.bust {
-  animation: shake 0.4s 0.5s ease-in-out;
+  animation: shake 0.4s calc(var(--shake) + 0.55s) ease-in-out;
 }
 
 .dice-row.bust .die {
-  opacity: 0.55;
-  outline-color: var(--bad);
-  transition: opacity 0.3s 0.5s, outline-color 0.3s 0.5s;
+  opacity: 0.5;
+  border-color: var(--bad);
+  transition:
+    opacity 0.3s calc(var(--shake) + 0.55s),
+    border-color 0.3s calc(var(--shake) + 0.55s);
 }
 
 @keyframes shake {
@@ -309,7 +378,8 @@ button.die {
 
 @media (prefers-reduced-motion: reduce) {
   .die.rolling,
-  .dice-row.bust {
+  .dice-row.bust,
+  .turn-card {
     animation: none;
   }
 }
@@ -323,10 +393,10 @@ button.die {
 }
 
 .pip {
-  width: 72%;
+  width: 70%;
   aspect-ratio: 1;
   border-radius: 50%;
-  background: var(--pip);
+  background: currentColor;
 }
 
 .pip.empty {
@@ -355,6 +425,7 @@ button.die {
 }
 
 .kept-points {
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--good);
 }
@@ -362,8 +433,8 @@ button.die {
 /* Actions */
 .actions {
   display: flex;
-  gap: 10px;
-  min-height: 64px;
+  gap: 8px;
+  min-height: 60px;
   position: sticky;
   bottom: max(12px, env(safe-area-inset-bottom));
 }
@@ -375,7 +446,7 @@ button.die {
 
 .actions button {
   flex: 1;
-  min-height: 64px;
+  min-height: 60px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -383,27 +454,26 @@ button.die {
   gap: 2px;
   padding: 6px 10px;
   border-radius: var(--radius);
-  font-size: 1.1rem;
-  font-weight: 700;
+  font-size: 1.05rem;
+  font-weight: 800;
   border: none;
   cursor: pointer;
 }
 
 .primary {
-  background: var(--gold);
-  color: #2a1f00;
-  box-shadow: 0 4px 0 #b8902a;
+  background: var(--green);
+  color: #fff;
 }
 
 .secondary {
-  background: #f4f1e8;
-  color: #12321f;
-  box-shadow: 0 4px 0 #bdb8a8;
+  background: var(--line-strong);
+  color: var(--ink);
 }
 
-.actions button:active:not(:disabled) {
-  transform: translateY(3px);
-  box-shadow: none;
+.actions button:active:not(:disabled),
+.big-button:active:not(:disabled),
+.modal-button:active {
+  filter: brightness(0.88);
 }
 
 /* Auto-pass button: a bar drains across the bottom until play moves on. */
@@ -413,16 +483,16 @@ button.die {
 }
 
 .actions button .sub {
-  font-size: 0.75rem;
-  font-weight: 500;
-  opacity: 0.75;
+  font-size: 0.72rem;
+  font-weight: 600;
+  opacity: 0.8;
 }
 
 .countdown::after {
   content: "";
   position: absolute;
   inset: auto 0 0 0;
-  height: 6px;
+  height: 5px;
   background: rgb(0 0 0 / 0.3);
   transform-origin: left;
   animation: drain var(--pause) linear forwards;
@@ -438,7 +508,7 @@ button.die {
 }
 
 .actions button:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: not-allowed;
 }
 
@@ -450,8 +520,8 @@ button.die {
 
 /* Panels */
 .panel {
-  background: rgb(0 0 0 / 0.2);
-  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  border-radius: 10px;
   padding: 12px 14px;
 }
 
@@ -463,7 +533,7 @@ button.die {
 
 .panel summary {
   cursor: pointer;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .panel[open] summary {
@@ -475,15 +545,25 @@ button.die {
   flex-direction: column;
   gap: 6px;
   margin-bottom: 10px;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
 }
 
 .field input {
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid rgb(255 255 255 / 0.2);
-  background: rgb(0 0 0 / 0.25);
+  padding: 11px 12px;
+  border-radius: var(--radius);
+  border: 2px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
   font-size: 16px; /* stops iOS zooming on focus */
+  font-weight: 600;
+}
+
+.field input:focus,
+.code-input:focus {
+  outline: none;
+  border-color: var(--line-strong);
 }
 
 .row {
@@ -504,24 +584,24 @@ button.die {
 
 .stepper {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 
 .chip {
   min-width: 44px;
   min-height: 44px;
   padding: 0 14px;
-  border-radius: 10px;
-  border: 1px solid rgb(255 255 255 / 0.25);
-  background: rgb(0 0 0 / 0.2);
+  border-radius: var(--radius);
+  border: 2px solid var(--line);
+  background: none;
+  font-weight: 700;
   cursor: pointer;
 }
 
 .chip.active {
-  background: var(--gold);
-  color: #2a1f00;
-  border-color: var(--gold);
-  font-weight: 700;
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
 }
 
 .rules {
@@ -542,22 +622,22 @@ button.die {
   display: grid;
   grid-template-columns: 1fr auto auto;
   gap: 12px;
-  padding: 4px 0;
-  border-bottom: 1px solid rgb(255 255 255 / 0.06);
+  padding: 5px 0;
+  border-bottom: 1px solid var(--line);
 }
 
-/* Menu: rules, history and testing tools live in a bottom sheet, off the game screen. */
+/* Menu: settings, rules and history live in a bottom sheet, off the game screen. */
 .menu-button {
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  gap: 5px;
-  background: rgb(0 0 0 / 0.2);
+  gap: 4px;
+  background: none;
   border: none;
-  border-radius: 10px;
+  border-radius: var(--radius);
   cursor: pointer;
 }
 
@@ -572,7 +652,7 @@ button.die {
   position: fixed;
   inset: 0;
   z-index: 10;
-  background: rgb(0 0 0 / 0.5);
+  background: rgb(0 0 0 / 0.6);
   display: flex;
   align-items: flex-end;
   justify-content: center;
@@ -584,12 +664,14 @@ button.die {
   max-width: 520px;
   max-height: 85dvh;
   overflow-y: auto;
-  background: var(--felt-dark);
-  border-radius: 20px 20px 0 0;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-bottom: none;
+  border-radius: 14px 14px 0 0;
   padding: 12px 16px max(20px, env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   animation: slide-up 0.2s ease-out;
 }
 
@@ -623,15 +705,15 @@ button.die {
 }
 
 .trophy {
-  font-size: 4rem;
+  font-size: 3.5rem;
   line-height: 1;
   animation: pop 0.5s ease-out;
 }
 
 .winner h1 {
   margin: 12px 0 6px;
-  font-size: 2.2rem;
-  color: var(--gold);
+  font-size: 2rem;
+  font-weight: 800;
 }
 
 .winner p {
@@ -644,7 +726,7 @@ button.die {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .standings li {
@@ -654,25 +736,23 @@ button.die {
   column-gap: 12px;
   row-gap: 10px;
   padding: 12px 14px;
-  border-radius: var(--radius);
-  background: rgb(0 0 0 / 0.2);
-  border: 2px solid transparent;
+  border-radius: 10px;
+  border: 2px solid var(--line);
 }
 
 .standings li.winner-row {
-  border-color: var(--gold);
-  background: rgb(0 0 0 / 0.35);
+  border-color: var(--green);
 }
 
 .standings .rank {
-  font-size: 1.3rem;
+  font-size: 1.2rem;
   font-weight: 800;
   color: var(--muted);
   text-align: center;
 }
 
 .standings .winner-row .rank {
-  color: var(--gold);
+  color: var(--good);
 }
 
 .standings .name {
@@ -690,13 +770,14 @@ button.die {
   grid-template-columns: repeat(3, 1fr);
   margin: 0;
   padding-top: 10px;
-  border-top: 1px solid rgb(255 255 255 / 0.08);
+  border-top: 1px solid var(--line);
 }
 
 .standings .stats dt {
-  font-size: 0.65rem;
+  font-size: 0.62rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   color: var(--muted);
   white-space: nowrap;
 }
@@ -719,7 +800,7 @@ button.die {
 .game-facts span {
   padding: 4px 12px;
   border-radius: 999px;
-  background: rgb(0 0 0 / 0.25);
+  border: 1px solid var(--line);
   font-size: 0.85rem;
   color: var(--muted);
 }
@@ -729,7 +810,7 @@ button.die {
 }
 
 .standings .final-score {
-  font-size: 1.4rem;
+  font-size: 1.35rem;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
@@ -771,15 +852,22 @@ button.die {
 }
 
 .hero-dice {
-  font-size: 4.5rem;
-  line-height: 1;
+  display: flex;
+  justify-content: center;
+  gap: 6px;
   margin-bottom: 28px;
+  --die-size: 46px;
+}
+
+.hero-dice .die.selected {
+  transform: none;
 }
 
 .card h2,
 .members-head h2 {
   margin: 0;
-  font-size: 1.1rem;
+  font-size: 1.05rem;
+  font-weight: 800;
 }
 
 .card .field {
@@ -791,22 +879,22 @@ button.die {
   padding: 0 18px;
   border: none;
   border-radius: var(--radius);
-  font-size: 1.05rem;
-  font-weight: 700;
+  font-size: 1rem;
+  font-weight: 800;
   cursor: pointer;
 }
 
 .big-button:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
 }
 
 .code-input {
   flex: 1;
   min-width: 0;
   padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid rgb(255 255 255 / 0.2);
-  background: rgb(0 0 0 / 0.25);
+  border-radius: var(--radius);
+  border: 2px solid var(--line);
+  background: var(--bg);
   font-size: 1.4rem !important;
   font-weight: 800;
   letter-spacing: 0.3em;
@@ -815,11 +903,12 @@ button.die {
 }
 
 .rejoin {
-  border: 2px solid var(--gold);
-  background: rgb(0 0 0 / 0.25);
+  border: 2px solid var(--green);
+  background: none;
   border-radius: var(--radius);
   padding: 14px;
   font-size: 1rem;
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -832,6 +921,7 @@ button.die {
 .notice h1 {
   margin: 0;
   text-align: center;
+  font-weight: 800;
 }
 
 .notice > p {
@@ -841,15 +931,26 @@ button.die {
 .notice .topbar {
   position: absolute;
   top: max(12px, env(safe-area-inset-top));
+  border-bottom: none;
 }
 
+/* Room code: one tile per letter. */
 .code-display {
-  font-size: 3.2rem;
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+}
+
+.code-display span {
+  width: 54px;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--line-strong);
+  font-size: 1.9rem;
   font-weight: 800;
-  letter-spacing: 0.25em;
-  text-align: center;
-  color: var(--gold);
-  padding-left: 0.25em; /* balance the letter-spacing after the last letter */
+  text-transform: uppercase;
 }
 
 /* Lobby */
@@ -862,7 +963,7 @@ button.die {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   margin: 12px 0;
 }
 
@@ -872,12 +973,12 @@ button.die {
 
 .share {
   margin-top: 6px;
-  min-height: 48px;
+  min-height: 44px;
   padding: 0 22px;
   border: none;
-  border-radius: 999px;
-  font-weight: 700;
-  font-size: 1rem;
+  border-radius: var(--radius);
+  font-weight: 800;
+  font-size: 0.95rem;
   cursor: pointer;
 }
 
@@ -901,41 +1002,40 @@ button.die {
   align-items: center;
   gap: 10px;
   padding: 12px;
-  border-radius: 10px;
-  background: rgb(0 0 0 / 0.2);
+  border-radius: var(--radius);
+  border: 2px solid var(--line);
 }
 
 .members .name {
   flex: 1;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .members .open-seat {
-  background: none;
-  border: 2px dashed rgb(255 255 255 / 0.12);
+  border-style: dashed;
 }
 
 .dot {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: rgb(255 255 255 / 0.2);
+  background: var(--line-strong);
   flex-shrink: 0;
 }
 
 .dot.on {
   background: var(--good);
-  box-shadow: 0 0 8px rgb(142 240 168 / 0.6);
 }
 
 .tag.host {
-  font-size: 0.7rem;
+  font-size: 0.65rem;
+  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding: 2px 8px;
-  border-radius: 999px;
+  letter-spacing: 0.08em;
+  padding: 3px 8px;
+  border-radius: 4px;
   background: var(--gold);
-  color: #2a1f00;
+  color: #fff;
 }
 
 .scoreboard .tag.away {
@@ -952,11 +1052,11 @@ button.die {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 64px;
+  min-height: 60px;
   border-radius: var(--radius);
-  border: 2px dashed rgb(255 255 255 / 0.15);
+  border: 2px dashed var(--line);
   color: var(--muted);
-  font-weight: 600;
+  font-weight: 700;
   text-align: center;
   padding: 0 12px;
 }
@@ -975,9 +1075,9 @@ button.die {
   padding: calc(env(safe-area-inset-top) + 6px) 12px 6px;
   text-align: center;
   font-size: 0.85rem;
-  font-weight: 600;
+  font-weight: 700;
   background: var(--gold);
-  color: #2a1f00;
+  color: #fff;
 }
 
 .invite-line {
@@ -989,7 +1089,7 @@ button.die {
   position: fixed;
   inset: 0;
   z-index: 30;
-  background: rgb(0 0 0 / 0.6);
+  background: rgb(0 0 0 / 0.65);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -999,34 +1099,35 @@ button.die {
 
 .modal {
   width: 100%;
-  max-width: 400px;
-  background: var(--felt-dark);
-  border: 1px solid rgb(255 255 255 / 0.1);
-  border-radius: 20px;
+  max-width: 380px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 12px;
   padding: 22px 18px 14px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   text-align: center;
-  box-shadow: 0 20px 60px rgb(0 0 0 / 0.5);
+  box-shadow: 0 16px 48px rgb(0 0 0 / 0.6);
   animation: slide-up 0.2s ease-out;
 }
 
 .modal h2 {
   margin: 0;
-  font-size: 1.2rem;
+  font-size: 1.15rem;
+  font-weight: 800;
 }
 
 .modal p {
-  margin: 0 0 6px;
+  margin: 0 0 8px;
 }
 
 .modal-button {
-  min-height: 56px;
+  min-height: 52px;
   border: none;
   border-radius: var(--radius);
   font-size: 1rem;
-  font-weight: 700;
+  font-weight: 800;
   cursor: pointer;
   display: flex;
   flex-direction: column;
@@ -1037,9 +1138,9 @@ button.die {
 }
 
 .modal-button .sub {
-  font-size: 0.75rem;
-  font-weight: 500;
-  opacity: 0.75;
+  font-size: 0.72rem;
+  font-weight: 600;
+  opacity: 0.8;
 }
 
 .modal-button.voted {
@@ -1055,46 +1156,9 @@ button.die {
   padding: calc(env(safe-area-inset-top) + 8px) 12px 8px;
   border: none;
   background: var(--bad);
-  color: #3a0d06;
+  color: #fff;
   font-size: 0.9rem;
   cursor: pointer;
-}
-
-/* "It's your turn" */
-.toast-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 28;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: auto;
-  cursor: pointer;
-}
-
-.toast {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 16px 26px;
-  border-radius: 999px;
-  background: var(--gold);
-  color: #2a1f00;
-  font-size: 1.3rem;
-  font-weight: 800;
-  box-shadow: 0 12px 40px rgb(0 0 0 / 0.45);
-  animation: toast-in 0.35s cubic-bezier(0.2, 1.4, 0.4, 1);
-}
-
-.toast-dice {
-  font-size: 1.6rem;
-}
-
-@keyframes toast-in {
-  from {
-    transform: scale(0.6);
-    opacity: 0;
-  }
 }
 
 /* --- Voice ------------------------------------------------------------------ */
@@ -1102,39 +1166,40 @@ button.die {
 .topbar-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .mic-button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 40px;
-  padding: 0 14px;
-  border-radius: 999px;
-  border: 1px solid rgb(255 255 255 / 0.2);
-  background: rgb(0 0 0 / 0.25);
-  font-size: 0.9rem;
-  font-weight: 600;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: var(--radius);
+  border: 2px solid var(--line);
+  background: none;
+  font-size: 0.85rem;
+  font-weight: 700;
   cursor: pointer;
 }
 
 .mic-button svg {
-  font-size: 1.15rem;
+  font-size: 1.1rem;
 }
 
 .mic-button.live {
-  border-color: var(--good);
+  border-color: var(--green);
   color: var(--good);
 }
 
 .mic-button.live.muted {
-  border-color: rgb(255 255 255 / 0.2);
+  border-color: var(--line);
   color: var(--muted);
 }
 
 .mic-button.talking {
-  box-shadow: 0 0 0 3px rgb(142 240 168 / 0.35);
+  background: var(--green);
+  color: #fff;
 }
 
 .mic-button:disabled {
@@ -1162,8 +1227,8 @@ button.die {
 }
 
 .voice-badge.talking {
-  color: #12321f;
-  background: var(--good);
+  color: #fff;
+  background: var(--green);
 }
 
 .voice-badge.talking::before,
@@ -1212,20 +1277,21 @@ button.die {
   justify-content: space-between;
   gap: 16px;
   min-height: 32px;
+  font-weight: 600;
 }
 
 .setting-row input[type="range"] {
   flex: 1;
   max-width: 60%;
-  accent-color: var(--gold);
+  accent-color: var(--green);
 }
 
 .switch {
   appearance: none;
-  width: 48px;
-  height: 28px;
+  width: 46px;
+  height: 26px;
   border-radius: 999px;
-  background: rgb(255 255 255 / 0.2);
+  background: var(--line-strong);
   position: relative;
   cursor: pointer;
   transition: background 0.15s;
@@ -1237,15 +1303,15 @@ button.die {
   position: absolute;
   top: 3px;
   left: 3px;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   background: #fff;
   transition: transform 0.15s;
 }
 
 .switch:checked {
-  background: var(--good);
+  background: var(--green);
 }
 
 .switch:checked::after {
@@ -1261,14 +1327,14 @@ button.die {
   max-width: 60%;
   height: 8px;
   border-radius: 999px;
-  background: rgb(255 255 255 / 0.12);
+  background: var(--line);
   overflow: hidden;
 }
 
 .level-meter span {
   display: block;
   height: 100%;
-  background: linear-gradient(90deg, var(--good), var(--gold));
+  background: var(--good);
   transform-origin: left;
   transition: transform 0.1s linear;
 }
@@ -1289,9 +1355,9 @@ button.die {
   padding: 12px 4px;
   background: none;
   border: none;
-  border-top: 1px solid rgb(255 255 255 / 0.06);
+  border-top: 1px solid var(--line);
   font-size: 1rem;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
 }
 
@@ -1301,13 +1367,13 @@ button.die {
 
 .menu-action.leave {
   text-align: center;
-  border: 1px solid rgb(255 138 122 / 0.4);
+  border: 2px solid var(--bad);
   border-radius: var(--radius);
 }
 
 .modal-button.danger {
   background: var(--bad);
-  color: #3a0d06;
+  color: #fff;
 }
 
 .game-over .link.center {

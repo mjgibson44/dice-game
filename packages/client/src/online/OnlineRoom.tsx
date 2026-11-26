@@ -137,7 +137,7 @@ function JoinForm({ code, onHome, error }: { code: string; onHome: () => void; e
         </button>
       </header>
       <p className="eyebrow">Joining game</p>
-      <div className="code-display">{code}</div>
+      <CodeTiles code={code} />
       <label className="field">
         <span>Your name</span>
         <input
@@ -194,7 +194,7 @@ function Lobby({ room, me, onLeave, error }: { room: RoomView; me: string; onLea
 
       <section className="lobby-code">
         <p className="eyebrow">Game code</p>
-        <div className="code-display">{room.code}</div>
+        <CodeTiles code={room.code} />
         <button type="button" className="secondary share" onClick={share}>
           {copied ? "Link copied!" : "Share invite link"}
         </button>
@@ -380,30 +380,7 @@ function OnlineGame({ room, me, receivedAt, error, onLeave }: OnlineGameProps) {
         </ConfirmDialog>
       )}
       {room.stuck && room.stuck.playerId !== me && <AwayPlayerModal room={room} me={me} />}
-      {myTurn && <YourTurnToast key={game.turnNumber} />}
     </>
-  );
-}
-
-/** "It's your turn" — shows when a turn comes to you, hides after 3 seconds or on a tap. */
-function YourTurnToast() {
-  const [visible, setVisible] = useState(true);
-  useEffect(() => {
-    // Browsers only allow a buzz once the page has been tapped.
-    if (navigator.userActivation?.hasBeenActive) navigator.vibrate?.(60);
-    const timer = setTimeout(() => setVisible(false), 3000);
-    return () => clearTimeout(timer);
-  }, []);
-  if (!visible) return null;
-  return (
-    <div className="toast-backdrop" onClick={() => setVisible(false)}>
-      <div className="toast" role="status">
-        <span className="toast-dice" aria-hidden>
-          🎲
-        </span>
-        It's your turn!
-      </div>
-    </div>
   );
 }
 
@@ -454,6 +431,17 @@ function AwayPlayerModal({ room, me }: { room: RoomView; me: string }) {
           Keep waiting
         </button>
       </div>
+    </div>
+  );
+}
+
+/** The room code as a row of letter tiles. */
+function CodeTiles({ code }: { code: string }) {
+  return (
+    <div className="code-display" role="img" aria-label={`Code ${code.split("").join(" ")}`}>
+      {code.split("").map((letter, i) => (
+        <span key={i}>{letter}</span>
+      ))}
     </div>
   );
 }
