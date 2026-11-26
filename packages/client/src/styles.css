@@ -15,8 +15,8 @@
   --gold: #c9b458;
   --bad: #e2604f;
   --radius: 6px;
-  /* How long the dice rattle in the cup before they land (matches SHAKE_MS in sound.ts). */
-  --shake: 380ms;
+  /* How long before the dice land; sound.ts sets this to match the roll sound in use. */
+  --shake: 0ms;
   /* Five dice must fit in one row on a 320px-wide phone. */
   --die-size: clamp(40px, calc((min(100vw, 520px) - 112px) / 5), 62px);
   color-scheme: dark;
@@ -99,8 +99,6 @@ input {
   justify-content: space-between;
   align-items: center;
   min-height: 48px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--line);
 }
 
 .topbar .eyebrow {
@@ -277,21 +275,23 @@ input {
   font-size: 1.05rem;
 }
 
-/* Dice: outlined tiles that turn green when set aside. */
+/* Dice: solid grey tiles that turn green when set aside. */
 .die {
   --size: var(--die-size);
   width: var(--size);
   height: var(--size);
   padding: calc(var(--size) * 0.16);
-  background: var(--bg);
-  border: 2px solid var(--line-strong);
+  background: var(--line);
+  border: none;
   border-radius: calc(var(--size) * 0.14);
   display: inline-flex;
   color: var(--ink);
+  outline: 2px solid transparent;
+  outline-offset: 2px;
   transition:
     transform 0.12s,
     background-color 0.12s,
-    border-color 0.12s;
+    outline-color 0.12s;
 }
 
 button.die {
@@ -300,7 +300,6 @@ button.die {
 
 .die-sm {
   --size: 26px;
-  border-width: 0;
   padding: 4px;
   background: var(--green);
 }
@@ -308,12 +307,11 @@ button.die {
 .die.selected {
   transform: translateY(-6px);
   background: var(--green);
-  border-color: var(--green);
 }
 
 .die.hinted:not(.selected) {
-  border-color: var(--gold);
-  border-style: dashed;
+  outline-color: var(--gold);
+  outline-style: dashed;
 }
 
 /* Dice stay hidden while they rattle in the cup, then flip into place one after another. */
@@ -359,10 +357,10 @@ button.die {
 
 .dice-row.bust .die {
   opacity: 0.5;
-  border-color: var(--bad);
+  background: var(--bad);
   transition:
     opacity 0.3s calc(var(--shake) + 0.55s),
-    border-color 0.3s calc(var(--shake) + 0.55s);
+    background-color 0.3s calc(var(--shake) + 0.55s);
 }
 
 @keyframes shake {
@@ -931,7 +929,6 @@ button.die {
 .notice .topbar {
   position: absolute;
   top: max(12px, env(safe-area-inset-top));
-  border-bottom: none;
 }
 
 /* Room code: one tile per letter. */
@@ -1378,4 +1375,66 @@ button.die {
 
 .game-over .link.center {
   margin-top: 4px;
+}
+
+/* --- Roll sound sampler ----------------------------------------------------- */
+
+.sound-group h2 {
+  margin: 8px 0;
+}
+
+.sound-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sound-list li {
+  border: 2px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sound-list li.chosen {
+  border-color: var(--green);
+}
+
+.sound-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sound-head p {
+  margin-top: 2px;
+}
+
+.sound-head .big-button {
+  flex-shrink: 0;
+  min-height: 44px;
+}
+
+.sample-dice {
+  height: calc(var(--die-size) + 16px);
+}
+
+.sound-list .use {
+  align-self: flex-start;
+  padding: 6px 0;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.sound-list .use.chosen {
+  color: var(--good);
 }
