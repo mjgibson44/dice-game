@@ -42,17 +42,23 @@ Several combos can be set aside from the same roll (e.g. three 4s + a 1 + a 5 = 
 - Carrying on works like a normal turn: crap out and you get nothing; bank and the
   whole amount (inherited points included) goes on your score.
 - Live dice are dead for a player who isn't on the board yet, and for a player they
-  would push over 10,000.
+  would push over 10,000. Both players get a warning: the banker sees the next player
+  can't build on it, and the next player sees why they're starting fresh.
 
 ### Winning
 - First to score **exactly 10,000** wins.
-- You can't set aside dice that would take you over 10,000. If every scoring choice
-  in a roll would go over, it counts as a crap-out.
+- You can't set aside dice that would take you over 10,000.
+- **Exact roll:** on the roll that lands on 10,000, every scoring die counts, chosen or
+  not. You can't pick out dice to finish: the whole roll has to score exactly what you
+  need. If it scores more, you can still set aside less and keep rolling.
+  - At 9,800, rolling 1, 1, 5, 4, 4 (250) can't finish with the two 1s. Keep the 1 and
+    5 (150) and roll three dice. Then 1, 5, 4 craps out: the 5 alone would make 10,000,
+    but the 1 counts too.
+  - Needing 50, a single 5 wins; two 5s (100) end the turn with nothing.
+- If no allowed choice is left in a roll, it counts as a crap-out.
 
 ### Open questions
-1. **Two 5s at 9,950:** the example says rolling two 5s when you need 50 ends the turn.
-   The current build lets you set aside just one 5 and win, same as any other turn.
-   Which is right?
+1. ~~**Two 5s at 9,950**~~: settled by the exact roll rule: the turn ends.
 2. **Crapping out on live dice:** the rules say carrying on and scoring nothing ends the
    turn, but the Person C example then has C take five dice and keep rolling. The
    current build ends the turn. Does a miss on live dice instead let you start fresh?

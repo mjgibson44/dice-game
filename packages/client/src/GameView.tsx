@@ -8,7 +8,9 @@ import {
   bankBlocker,
   currentPlayer,
   DICE_PER_TURN,
-  pointsRoom,
+  keepProblem,
+  liveDiceBlocker,
+  rollPoints,
   scoreSelection,
   type GameState,
 } from "@dice-game/shared";
@@ -68,8 +70,8 @@ export function GameView(props: GameViewProps) {
   const selected = props.selected.filter((i) => i < rollLength);
   const selectedFaces = choosing && turn.roll ? selected.map((i) => turn.roll![i]!) : [];
   const selection = selectedFaces.length ? scoreSelection(selectedFaces) : null;
-  const overTarget = selection !== null && turn !== null && selection.points > pointsRoom(turn);
-  const validSelection = selection !== null && !overTarget;
+  const selectionProblem = selection !== null && turn !== null ? keepProblem(turn, selection.points) : null;
+  const validSelection = selection !== null && selectionProblem === null;
 
   const diceAfterKeep = turn ? turn.diceToRoll - selected.length || DICE_PER_TURN : DICE_PER_TURN;
   const pendingPoints = (turn?.turnPoints ?? 0) + (validSelection ? selection.points : 0);
@@ -191,7 +193,9 @@ export function GameView(props: GameViewProps) {
 
             {turn.phase === "banked" ? (
               <div className="dice-row placeholder">
-                {`${dice(turn.diceToRoll)} worth ${fmt(turn.turnPoints)} ${turn.diceToRoll === 1 ? "passes" : "pass"} to ${nameOf(nextPlayer.id)}`}
+                {game.players.length > 1 && liveDiceBlocker(nextPlayer, turn.turnPoints, game.config) === "no-room"
+                  ? `${nameOf(nextPlayer.id)} can't build on ${fmt(turn.turnPoints)}: it would go over ${fmt(target)}`
+                  : `${dice(turn.diceToRoll)} worth ${fmt(turn.turnPoints)} ${turn.diceToRoll === 1 ? "passes" : "pass"} to ${nameOf(nextPlayer.id)}`}
               </div>
             ) : turn.roll ? (
               <div className={turn.phase === "crapped-out" ? "dice-row bust" : "dice-row"} key={rollId}>
@@ -214,8 +218,19 @@ export function GameView(props: GameViewProps) {
             )}
 
             <div className="status">
-              {game.deadDice === "no-room" && turn.roll === null && (
-                <p className="muted">The live dice would put {myTurn ? "you" : player.name} over {fmt(target)}, so it's a fresh start.</p>
+              {game.deadDice === "no-room" && live && turn.roll === null && turn.kept.length === 0 && (
+                <div className="warning" role="alert">
+                  <strong>
+                    {myTurn ? "You" : player.name} can't build on {liveFromName === "You" ? "your" : `${liveFromName}'s`}{" "}
+                    {fmt(live.turnPoints)}
+                  </strong>
+                  <span>
+                    {player.score + live.turnPoints > target
+                      ? `${fmt(player.score)} + ${fmt(live.turnPoints)} would go over ${fmt(target)}`
+                      : `${fmt(player.score)} + ${fmt(live.turnPoints)} leaves just ${fmt(target - player.score - live.turnPoints)} to go, less than any roll scores`}
+                    , so it's a fresh start with 5 dice.
+                  </span>
+                </div>
               )}
               {!player.onBoard && game.phase === "playing" && turn.roll === null && (
                 <p className="muted">
@@ -235,6 +250,11 @@ export function GameView(props: GameViewProps) {
               {turn.phase === "crapped-out" && turn.crapOutReason === "over-target" && (
                 <p className="bad">Crapped out! Every scoring choice would go over {fmt(target)}.</p>
               )}
+              {turn.phase === "crapped-out" && turn.crapOutReason === "not-exact" && turn.roll && (
+                <p className="bad">
+                  Crapped out! To land on {fmt(target)} every scoring die counts, and this roll scores {fmt(rollPoints(turn.roll))}.
+                </p>
+              )}
               {turnOver && lastRecord?.outcome === "banked" && <p className="good">Banked {fmt(lastRecord.points)}.</p>}
               {turn.phase === "ready" && turn.kept.length > 0 && turn.diceToRoll === DICE_PER_TURN && (
                 <p className="good">Hot dice! Every die scored. Pick up all five and keep going.</p>
@@ -243,7 +263,12 @@ export function GameView(props: GameViewProps) {
                 <p>{myTurn ? "Tap the dice you want to set aside." : `${player.name} is choosing dice…`}</p>
               )}
               {choosing && selected.length > 0 && !selection && <p className="bad">Every die set aside has to score.</p>}
-              {choosing && overTarget && <p className="bad">That would go over {fmt(target)}.</p>}
+              {choosing && selectionProblem === "over-target" && <p className="bad">That would go over {fmt(target)}.</p>}
+              {choosing && selectionProblem === "not-exact" && (
+                <p className="bad">
+                  To land on {fmt(target)}, every scoring die counts: this roll scores {fmt(rollPoints(turn.roll!))}.
+                </p>
+              )}
               {choosing && validSelection && <p className="selection-points">+{fmt(selection.points)}</p>}
               {choosing && validSelection && selected.length === turn.diceToRoll && (
                 <p className="good">Every die scores: rolling on picks all five back up.</p>
@@ -367,6 +392,10 @@ export function RulesPanel({ game }: { game: GameState }) {
         <li>Need {openingMin} in one turn to get on the board</li>
         <li>After a bank, the next player may carry on from those points with the dice left, or start fresh</li>
         <li>Win by hitting exactly {fmt(target)}</li>
+        <li>
+          On the roll that lands on {fmt(target)}, every scoring die counts, chosen or not. If the roll scores more than
+          you need, you can only set aside less and keep rolling.
+        </li>
       </ul>
     </details>
   );

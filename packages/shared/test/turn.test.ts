@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
 import type { Face } from "../src/scoring.ts";
-import { applyRoll, bank, isTurnOver, keepDice, rollDice, startTurn, type TurnResult, type TurnState } from "../src/turn.ts";
+import {
+  applyRoll,
+  bank,
+  bestAllowedSelection,
+  isTurnOver,
+  keepDice,
+  keepProblem,
+  rollDice,
+  rollPoints,
+  startTurn,
+  type TurnResult,
+  type TurnState,
+} from "../src/turn.ts";
 
 function ok(result: TurnResult): TurnState {
   if (!result.ok) throw new Error(result.error);
@@ -94,5 +106,32 @@ describe("rollDice", () => {
   it("returns faces 1-6", () => {
     expect(rollDice(5, () => 0)).toEqual([1, 1, 1, 1, 1]);
     expect(rollDice(3, () => 0.9999)).toEqual([6, 6, 6]);
+  });
+});
+
+describe("the exact roll rule", () => {
+  // 200 left before the target.
+  const need200 = () => startTurn({ limits: { maxTurnPoints: 200, minBank: 0 } });
+
+  it("counts every scoring die in the roll", () => {
+    expect(rollPoints([1, 1, 5, 4, 4])).toBe(250);
+    expect(rollPoints([2, 3, 4, 6, 6])).toBe(0);
+  });
+
+  it("only blocks landing exactly on the target when the roll scores more", () => {
+    const s = roll(need200(), [1, 1, 5, 4, 4]);
+    expect(keepProblem(s, 150)).toBeNull();
+    expect(keepProblem(s, 200)).toBe("not-exact");
+    expect(keepProblem(s, 250)).toBe("over-target");
+  });
+
+  it("has no effect without a target", () => {
+    const s = roll(startTurn(), [1, 1, 5, 4, 4]);
+    expect(keepProblem(s, 200)).toBeNull();
+  });
+
+  it("the hint picks the best selection the rule allows", () => {
+    expect(bestAllowedSelection(roll(need200(), [1, 1, 5, 4, 4]))).toEqual({ indices: [0, 2], points: 150 });
+    expect(bestAllowedSelection(roll(need200(), [1, 1, 3, 4, 6]))).toEqual({ indices: [0, 1], points: 200 });
   });
 });
