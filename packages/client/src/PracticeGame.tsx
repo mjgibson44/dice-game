@@ -5,7 +5,7 @@
 
 import {
   bankTurn,
-  bestSelection,
+  bestAllowedSelection,
   chooseStart,
   createGame,
   keep,
@@ -106,7 +106,7 @@ function PracticeTable({ game, setGame, onQuit }: PracticeTableProps) {
   const player = game.players[game.current]!;
   const { target, openingMin } = game.config;
   const choosing = game.phase === "playing" && turn?.phase === "choosing";
-  const hint = showHint && choosing && turn.roll ? bestSelection(turn.roll) : null;
+  const hint = showHint && choosing ? bestAllowedSelection(turn) : null;
   const diceAfterKeep = turn ? turn.diceToRoll - selected.length || 5 : 5;
 
   function apply(result: GameResult): GameState | null {

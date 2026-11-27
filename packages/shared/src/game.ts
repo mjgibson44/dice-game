@@ -97,13 +97,18 @@ function limitsFor(player: Player, config: GameConfig): TurnLimits {
   };
 }
 
+/** Why a player can't carry on from live dice worth `turnPoints`, or null if they can. */
+export function liveDiceBlocker(player: Player, turnPoints: number, config: GameConfig): DeadDiceReason | null {
+  if (!player.onBoard) return "not-on-board";
+  if (player.score + turnPoints + SMALLEST_KEEP > config.target) return "no-room";
+  return null;
+}
+
 /** Whether the current player may carry on from the live dice, and if not, why. */
 export function liveDiceStatus(state: GameState): { usable: true } | { usable: false; reason: DeadDiceReason } | null {
   if (!state.live) return null;
-  const player = currentPlayer(state);
-  if (!player.onBoard) return { usable: false, reason: "not-on-board" };
-  if (player.score + state.live.turnPoints + SMALLEST_KEEP > state.config.target) return { usable: false, reason: "no-room" };
-  return { usable: true };
+  const reason = liveDiceBlocker(currentPlayer(state), state.live.turnPoints, state.config);
+  return reason ? { usable: false, reason } : { usable: true };
 }
 
 /** Set up the current player's turn: offer the live dice if they can use them, otherwise start fresh. */

@@ -12,11 +12,16 @@
  * player's banked turn ("live dice"); see game.ts.
  */
 
-import { DICE_PER_TURN, scoreSelection, type Combo, type Face } from "./scoring.ts";
+import { bestSelection, DICE_PER_TURN, scoreSelection, type Combo, type Face } from "./scoring.ts";
 
 export type TurnPhase = "ready" | "choosing" | "crapped-out" | "banked";
 
-export type CrapOutReason = "no-score" | "over-target";
+/**
+ * "over-target": every scoring choice would go over the target.
+ * "not-exact": the roll would only finish the game by leaving scoring dice
+ * behind, but on the roll that lands on the target every scoring die counts.
+ */
+export type CrapOutReason = "no-score" | "over-target" | "not-exact";
 
 export interface KeptGroup {
   faces: Face[];
@@ -96,9 +101,30 @@ export function pointsRoom(state: TurnState): number {
   return max === null ? Infinity : max - state.turnPoints;
 }
 
+/** Everything the roll scores, counting every scoring die in it (0 if nothing scores). */
+export function rollPoints(roll: readonly number[]): number {
+  return bestSelection(roll)?.points ?? 0;
+}
+
+export type KeepProblem = "over-target" | "not-exact";
+
 /**
- * Apply a roll. The turn ends with zero if nothing scores, or if every
- * possible selection would push the player over the target.
+ * Whether setting aside `points` from the current roll is allowed under the
+ * target. Points that stay under the target are fine. Landing exactly on the
+ * target only counts when the whole roll scores exactly that much: a player
+ * can't leave scoring dice behind to finish (the "exact roll" rule).
+ */
+export function keepProblem(state: TurnState, points: number): KeepProblem | null {
+  const room = pointsRoom(state);
+  if (points > room) return "over-target";
+  if (points === room && state.roll && rollPoints(state.roll) !== room) return "not-exact";
+  return null;
+}
+
+/**
+ * Apply a roll. The turn ends with zero if nothing scores, or if no selection
+ * is allowed: everything would go over the target, or the only way to land
+ * on it leaves scoring dice behind.
  */
 export function applyRoll(state: TurnState, faces: readonly Face[]): TurnResult {
   if (state.phase !== "ready") return { ok: false, error: "You can't roll right now." };
@@ -107,7 +133,15 @@ export function applyRoll(state: TurnState, faces: readonly Face[]): TurnResult 
   }
   const roll = [...faces];
   const cheapest = cheapestSelectionPoints(roll);
-  const reason: CrapOutReason | null = cheapest === null ? "no-score" : cheapest > pointsRoom(state) ? "over-target" : null;
+  const room = pointsRoom(state);
+  const reason: CrapOutReason | null =
+    cheapest === null
+      ? "no-score"
+      : cheapest < room || rollPoints(roll) === room
+        ? null
+        : cheapest > room
+          ? "over-target"
+          : "not-exact";
   if (reason) {
     return { ok: true, state: { ...state, phase: "crapped-out", roll, turnPoints: 0, crapOutReason: reason } };
   }
@@ -136,8 +170,15 @@ export function keepDice(state: TurnState, indices: readonly number[]): TurnResu
       error: indices.length === 0 ? "Set aside at least one scoring die." : "Every die you set aside has to score.",
     };
   }
-  if (scored.points > pointsRoom(state)) {
+  const problem = keepProblem(state, scored.points);
+  if (problem === "over-target") {
     return { ok: false, error: "That would take you over the target. Set aside fewer points." };
+  }
+  if (problem === "not-exact") {
+    return {
+      ok: false,
+      error: `To land on the target, every scoring die in the roll counts, and this roll scores ${rollPoints(roll)}.`,
+    };
   }
 
   const remaining = state.diceToRoll - faces.length;
@@ -153,6 +194,22 @@ export function keepDice(state: TurnState, indices: readonly number[]): TurnResu
       hotDiceCount: state.hotDiceCount + (hotDice ? 1 : 0),
     },
   };
+}
+
+/** The highest-scoring selection the player is allowed to set aside, or null if there's none. */
+export function bestAllowedSelection(state: TurnState): { indices: number[]; points: number } | null {
+  const roll = state.roll;
+  if (state.phase !== "choosing" || !roll) return null;
+  let best: { indices: number[]; points: number } | null = null;
+  for (let mask = 1; mask < 1 << roll.length; mask++) {
+    const indices = roll.map((_, i) => i).filter((i) => mask & (1 << i));
+    const scored = scoreSelection(indices.map((i) => roll[i]!));
+    if (!scored || keepProblem(state, scored.points)) continue;
+    if (!best || scored.points > best.points || (scored.points === best.points && indices.length > best.indices.length)) {
+      best = { indices, points: scored.points };
+    }
+  }
+  return best;
 }
 
 /** Why the turn can't be banked right now, or null if it can. */

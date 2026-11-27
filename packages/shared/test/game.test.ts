@@ -154,18 +154,59 @@ describe("winning on exactly 10,000", () => {
 
   it("can't set aside dice that would go over", () => {
     const g = ok(roll(at9800(), [1, 1, 1, 2, 3]));
-    expect(keep(g, [0, 1, 2])).toMatchObject({ ok: false });
-    expect(keep(g, [0, 1])).toMatchObject({ ok: true }); // 200 lands exactly on 10,000
+    expect(keep(g, [0, 1, 2])).toMatchObject({ ok: false }); // 1000 is over
+    expect(keep(g, [0])).toMatchObject({ ok: true }); // 100 leaves room to keep rolling
   });
 
-  it("plays out the 9800 example: one 1, then a 5, then a final 5 to win", () => {
-    let g = rollKeep(at9800(), [1, 1, 1, 2, 3], [0]); // 9900
-    g = rollKeep(g, [5, 2, 3, 4], [0]); // 9950, three dice left
-    g = rollKeep(g, [5, 5, 2], [0]); // keep just one 5 -> 10,000
+  it("can't pick out dice to land on 10,000 when the whole roll scores more", () => {
+    // Three 1s show 1000: two of them would make exactly 200, but every scoring die counts.
+    expect(keep(ok(roll(at9800(), [1, 1, 1, 2, 3])), [0, 1])).toMatchObject({ ok: false });
+    // 1, 1, 5 show 250: the two 1s can't finish it either.
+    const g = ok(roll(at9800(), [1, 1, 5, 4, 4]));
+    expect(keep(g, [0, 1])).toMatchObject({ ok: false });
+    expect(keep(g, [0, 2])).toMatchObject({ ok: true }); // 150, keep rolling
+  });
+
+  it("lands on 10,000 when the whole roll scores exactly what's needed", () => {
+    let g = rollKeep(at9800(), [1, 1, 3, 4, 6], [0, 1]); // the roll shows exactly 200
     g = ok(bankTurn(g));
     expect(g.phase).toBe("finished");
     expect(g.winnerId).toBe("A");
     expect(g.players[0]?.score).toBe(10_000);
+  });
+
+  it("plays out the 9800 example: one 1, then a 5, then a single 5 to win", () => {
+    let g = rollKeep(at9800(), [1, 1, 1, 2, 3], [0]); // 9900
+    g = rollKeep(g, [5, 2, 3, 4], [0]); // 9950, three dice left
+    g = rollKeep(g, [5, 2, 3], [0]); // a single 5 -> 10,000
+    g = ok(bankTurn(g));
+    expect(g.phase).toBe("finished");
+    expect(g.winnerId).toBe("A");
+    expect(g.players[0]?.score).toBe(10_000);
+  });
+
+  it("needing 50, two 5s end the turn with nothing", () => {
+    let g = rollKeep(at9800(), [1, 1, 1, 2, 3], [0]);
+    g = rollKeep(g, [5, 2, 3, 4], [0]); // 9950, needs exactly 50
+    g = ok(roll(g, [5, 5, 2]));
+    expect(g.phase).toBe("turn-over");
+    expect(g.turn?.crapOutReason).toBe("not-exact");
+    expect(g.players[0]?.score).toBe(9800);
+  });
+
+  it("plays out the 1, 1, 5, 4, 4 example: keep 1 and 5, then 1, 5, 4 craps out", () => {
+    let g = rollKeep(at9800(), [1, 1, 5, 4, 4], [0, 2]); // 150, three dice left, needs 50
+    g = ok(roll(g, [1, 5, 4])); // the 5 alone would finish, but the 1 counts too
+    expect(g.phase).toBe("turn-over");
+    expect(g.turn?.crapOutReason).toBe("not-exact");
+    expect(g.players[0]?.score).toBe(9800);
+  });
+
+  it("can still set aside less and keep rolling when the roll scores more than needed", () => {
+    let g = rollKeep(at9800(), [1, 2, 3, 4, 6], [0]); // 100, four dice left, needs 100
+    g = ok(roll(g, [5, 5, 2, 3])); // shows 100: two 5s land on it exactly
+    expect(keep(g, [0, 1])).toMatchObject({ ok: true });
+    expect(keep(g, [0])).toMatchObject({ ok: true }); // or just one, and roll on
   });
 
   it("a roll where every scoring choice goes over ends the turn with nothing", () => {

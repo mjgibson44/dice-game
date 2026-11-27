@@ -264,6 +264,24 @@ input {
   font-variant-numeric: tabular-nums;
 }
 
+/* Heads-up when live dice can't be used because they'd go over the target. */
+.status .warning {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 auto 6px;
+  max-width: 32em;
+  padding: 8px 12px;
+  border: 1px solid var(--gold);
+  border-radius: var(--radius);
+  color: var(--ink);
+  text-align: center;
+}
+
+.status .warning strong {
+  color: var(--gold);
+}
+
 /* Live-dice choice sits at the bottom of the table, within thumb reach. */
 .decide {
   margin-top: auto;
